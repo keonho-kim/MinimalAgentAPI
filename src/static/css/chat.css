@@ -1,0 +1,202 @@
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 28px min(5vw, 64px);
+}
+
+.empty-state {
+  margin: auto;
+  max-width: 520px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.message {
+  width: min(760px, 100%);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: var(--user);
+  white-space: pre-wrap;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background: var(--assistant);
+}
+
+.assistant-turn {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-turn-body {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-segment {
+  min-width: 0;
+}
+
+.assistant-segment + .assistant-segment {
+  border-top: 1px solid var(--panel-border);
+  padding-top: 10px;
+}
+
+.activity-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.activity-card.running,
+.activity-card.pending {
+  border-color: rgb(20 108 148 / 30%);
+  background: #f3f9fc;
+}
+
+.activity-card.completed {
+  border-color: rgb(18 183 106 / 26%);
+  background: #f5fbf8;
+}
+
+.activity-card.error {
+  border-color: rgb(180 35 24 / 35%);
+  background: #fff4f2;
+}
+
+.activity-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.activity-status {
+  background: #e6eef4;
+  color: var(--accent-strong);
+  text-transform: uppercase;
+}
+
+.activity-card.completed .activity-status {
+  background: #dcfae6;
+  color: #067647;
+}
+
+.activity-card.error .activity-status {
+  background: #fee4e2;
+  color: var(--error);
+}
+
+.activity-title {
+  font-weight: 700;
+}
+
+.activity-path {
+  color: var(--accent-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.activity-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.activity-payload {
+  max-height: 220px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: var(--code-bg);
+  padding: 10px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.message.error {
+  align-self: flex-start;
+  border-color: rgb(180 35 24 / 35%);
+  background: #fff4f2;
+  color: var(--error);
+  white-space: pre-wrap;
+}
+
+.role {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 12px;
+  border-top: 1px solid var(--panel-border);
+  background: var(--panel);
+  padding: 16px min(5vw, 64px);
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 70px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--text);
+}
+
+.composer button {
+  min-height: 70px;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.composer button:disabled {
+  cursor: not-allowed;
+  background: #98a2b3;
+}
+
+@media (max-width: 760px) {
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .composer button {
+    min-height: 48px;
+  }
+}
