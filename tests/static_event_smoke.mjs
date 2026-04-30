@@ -3,6 +3,11 @@ import {
   normalizeStreamEvent,
   resetEventNormalization,
 } from "../src/static/scripts/events.mjs";
+import {
+  activityRenderKey,
+  activityTitleText,
+  shouldRenderActivity,
+} from "../src/static/scripts/format.mjs";
 
 resetEventNormalization();
 
@@ -31,6 +36,44 @@ const duplicateEndEvents = normalizeStreamEvent({
 });
 
 assert.equal(duplicateEndEvents[0].kind, "ignored");
+
+resetEventNormalization();
+
+const thinkPrefixEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "think-run",
+  data: {
+    chunk: "I will now formulate the final response",
+  },
+});
+const answerResumeEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "think-run",
+  data: {
+    chunk: ". 전문 답변입니다.",
+  },
+});
+
+assert.equal(thinkPrefixEvents[0].kind, "assistant_delta");
+assert.equal(thinkPrefixEvents[0].text, "I will now formulate the final response");
+assert.equal(answerResumeEvents[0].kind, "assistant_delta");
+assert.equal(answerResumeEvents[0].text, ". 전문 답변입니다.");
+
+const structuredReasoningEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "structured-think-run",
+  data: {
+    chunk: {
+      reasoning_content: "I should be concise.",
+      content: "간단히 답변하겠습니다.",
+    },
+  },
+});
+
+assert.equal(structuredReasoningEvents[0].kind, "think_delta");
+assert.equal(structuredReasoningEvents[0].text, "I should be concise.");
+assert.equal(structuredReasoningEvents[1].kind, "assistant_delta");
+assert.equal(structuredReasoningEvents[1].text, "간단히 답변하겠습니다.");
 
 resetEventNormalization();
 
@@ -67,7 +110,7 @@ const toolIntentEvents = normalizeStreamEvent({
 
 assert.equal(toolIntentEvents[0].kind, "activity");
 assert.equal(toolIntentEvents[0].status, "pending");
-assert.equal(toolIntentEvents[0].label, "Write file");
+assert.equal(toolIntentEvents[0].label, "write_file");
 assert.deepEqual(toolIntentEvents[0].input, { file_path: "/README.md" });
 assert.equal(toolIntentEvents[0].summary.path, "/README.md");
 assert.equal("raw" in toolIntentEvents[0], false);
@@ -87,6 +130,7 @@ assert.equal(toolStartEvents[0].kind, "activity");
 assert.equal(toolStartEvents[0].status, "running");
 assert.equal(toolStartEvents[0].id, "tool-run");
 assert.deepEqual(toolStartEvents[0].parentIds, ["model-run"]);
+assert.equal(toolStartEvents[0].message, "AGENT가 write_file 작업을 시작합니다.");
 assert.equal(toolStartEvents[0].summary.path, "/README.md");
 
 const toolEndEvents = normalizeStreamEvent({
@@ -126,3 +170,28 @@ const internalChainEvents = normalizeStreamEvent({
 });
 
 assert.equal(internalChainEvents[0].kind, "ignored");
+
+assert.equal(
+  shouldRenderActivity({ status: "pending" }),
+  false,
+);
+assert.equal(
+  shouldRenderActivity({ status: "running" }),
+  true,
+);
+assert.equal(
+  activityTitleText({
+    name: "write_file",
+    status: "running",
+    message: "AGENT가 파일 작성을 시작합니다.",
+  }),
+  "AGENT가 파일 작성을 시작합니다.",
+);
+assert.equal(
+  activityRenderKey({ id: "tool-run", status: "running" }),
+  "tool-run:running",
+);
+assert.equal(
+  activityRenderKey({ id: "tool-run", status: "completed" }),
+  "tool-run:completed",
+);

@@ -26,10 +26,15 @@
           <input id="userId" autocomplete="username" value="local-user" />
         </label>
 
-        <label class="field">
-          <span>Session UUID</span>
-          <input id="sessionUuid" autocomplete="off" />
-        </label>
+        <input id="sessionUuid" type="hidden" autocomplete="off" />
+
+        <section class="session-section" aria-label="Recent sessions">
+          <div class="panel-heading">
+            <h2>Sessions</h2>
+            <span id="activeSessionLabel"></span>
+          </div>
+          <div id="sessionList" class="session-list"></div>
+        </section>
 
         <button id="newSession" class="secondary-button" type="button">
           New session
@@ -42,6 +47,19 @@
       </aside>
 
       <section class="chat-panel" aria-label="Chat">
+        <header class="chat-toolbar">
+          <span>Chat</span>
+          <button
+            id="fileDrawerToggle"
+            class="icon-button"
+            type="button"
+            aria-expanded="false"
+            aria-controls="fileDrawer"
+            title="Files"
+          >
+            Files
+          </button>
+        </header>
         <div id="messages" class="messages" aria-live="polite"></div>
 
         <form id="chatForm" class="composer">
@@ -54,6 +72,29 @@
           <button id="sendButton" type="submit">Send</button>
         </form>
       </section>
+
+      <aside id="fileDrawer" class="file-drawer" aria-label="Workspace files" aria-hidden="true">
+        <div class="drawer-header">
+          <div>
+            <h2>Files</h2>
+            <p id="fileDrawerStatus">Ready</p>
+          </div>
+          <button id="fileDrawerClose" class="icon-button" type="button" title="Close">
+            Close
+          </button>
+        </div>
+
+        <form id="fileUploadForm" class="upload-form">
+          <input id="fileInput" type="file" multiple />
+          <button type="submit">Upload</button>
+        </form>
+
+        <button id="fileRefresh" class="secondary-button" type="button">
+          Refresh
+        </button>
+
+        <ul id="fileList" class="file-list"></ul>
+      </aside>
     </main>
 
     <script src="/ui/vendor/markdown-it/markdown-it.min.js"></script>

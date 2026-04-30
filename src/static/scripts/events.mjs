@@ -1,15 +1,20 @@
-const TOOL_LABELS = {
-  write_file: "Write file",
-  edit_file: "Edit file",
-  read_file: "Read file",
-  ls: "List files",
-  grep: "Search files",
-  glob: "Find files",
-  execute: "Run command",
-  task: "Delegate task",
-};
-
 const streamedModelRuns = new Set();
+const REASONING_BLOCK_TYPES = [
+  "reasoning",
+  "reasoning_content",
+  "thinking",
+  "thought",
+  "reasoning_delta",
+  "thinking_delta",
+];
+const REASONING_FIELDS = [
+  "reasoning_content",
+  "reasoning",
+  "thinking",
+  "thought",
+  "reasoning_delta",
+  "thinking_delta",
+];
 
 export function resetEventNormalization() {
   streamedModelRuns.clear();
@@ -77,6 +82,10 @@ export function extractText(value) {
     return "";
   }
 
+  if (isReasoningBlock(value)) {
+    return "";
+  }
+
   if (value.type === "text" && typeof value.text === "string") {
     return value.text;
   }
@@ -104,14 +113,26 @@ function normalizeModelStream(raw) {
   const data = raw.data || {};
   const chunk = data.chunk ?? data.output ?? data.message ?? data;
   const toolCalls = extractToolCalls(chunk);
+  const reasoning = extractReasoning(chunk);
   const text = extractText(chunk);
   const events = [];
 
-  if (text) {
+  if (reasoning || text) {
     if (raw.run_id) {
       streamedModelRuns.add(raw.run_id);
     }
+  }
 
+  if (reasoning) {
+    events.push({
+      kind: "think_delta",
+      id: raw.run_id,
+      parentIds: raw.parent_ids || [],
+      text: reasoning,
+    });
+  }
+
+  if (text) {
     events.push({
       kind: "assistant_delta",
       id: raw.run_id,
@@ -127,7 +148,8 @@ function normalizeModelStream(raw) {
       id: toolCall.id || `${raw.run_id}:${toolCall.index ?? events.length}`,
       parentIds: raw.parent_ids || [],
       name: toolCall.name || "tool",
-      label: getToolLabel(toolCall.name || "tool"),
+      label: toolCall.name || "tool",
+      message: activityMessage(toolCall.name || "tool", "pending"),
       status: "pending",
       input: toolCall.args,
       summary: summarizeActivity(toolCall.name || "tool", toolCall.args),
@@ -144,20 +166,110 @@ function normalizeModelEnd(raw) {
 
   const data = raw.data || {};
   const output = data.output ?? data.chunk ?? data.message;
+  const reasoning = extractReasoning(output);
   const text = extractText(output);
+  const events = [];
 
-  if (!text) {
-    return [{ kind: "ignored" }];
+  if (reasoning) {
+    events.push({
+      kind: "think_delta",
+      id: raw.run_id,
+      parentIds: raw.parent_ids || [],
+      text: reasoning,
+    });
   }
 
-  return [
-    {
+  if (text) {
+    events.push({
       kind: "assistant_delta",
       id: raw.run_id,
       parentIds: raw.parent_ids || [],
       text,
-    },
-  ];
+    });
+  }
+
+  return events.length > 0 ? events : [{ kind: "ignored" }];
+}
+
+function extractReasoning(value) {
+  if (typeof value === "string") {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractReasoning).join("");
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  if (isReasoningBlock(value)) {
+    return extractReasoningBlockText(value);
+  }
+
+  const parts = [];
+
+  for (const field of REASONING_FIELDS) {
+    const extracted = extractReasoningValue(value[field]);
+    if (extracted) {
+      parts.push(extracted);
+    }
+  }
+
+  for (const field of ["kwargs", "additional_kwargs", "response_metadata"]) {
+    if (value[field] && typeof value[field] === "object") {
+      const extracted = extractReasoning(value[field]);
+      if (extracted) {
+        parts.push(extracted);
+      }
+    }
+  }
+
+  if (Array.isArray(value.content)) {
+    const extracted = extractReasoning(value.content);
+    if (extracted) {
+      parts.push(extracted);
+    }
+  }
+
+  return parts.join("");
+}
+
+function extractReasoningValue(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractReasoningValue).join("");
+  }
+
+  if (value && typeof value === "object") {
+    for (const field of ["text", "content", "summary", "reasoning", "thinking"]) {
+      const extracted = extractReasoningValue(value[field]);
+      if (extracted) {
+        return extracted;
+      }
+    }
+  }
+
+  return "";
+}
+
+function extractReasoningBlockText(value) {
+  for (const field of ["text", "content", "thinking", "reasoning", "summary"]) {
+    const extracted = extractReasoningValue(value[field]);
+    if (extracted) {
+      return extracted;
+    }
+  }
+
+  return "";
+}
+
+function isReasoningBlock(value) {
+  return typeof value.type === "string" && REASONING_BLOCK_TYPES.includes(value.type);
 }
 
 function extractToolCalls(value) {
@@ -208,7 +320,8 @@ function createActivity(raw, type, status, input, output) {
     id: raw.run_id || `${type}:${name}`,
     parentIds: raw.parent_ids || [],
     name,
-    label: getToolLabel(name),
+    label: name,
+    message: activityMessage(name, status),
     status,
     input,
     output,
@@ -235,10 +348,6 @@ function normalizeVisibleChain(raw, eventName) {
   );
 }
 
-function getToolLabel(name) {
-  return TOOL_LABELS[name] || name;
-}
-
 function getSourcePath(raw) {
   const path = [];
 
@@ -255,6 +364,24 @@ function getSourcePath(raw) {
   }
 
   return path.filter(isMeaningfulSourcePart);
+}
+
+function activityMessage(name, status) {
+  const label = name || "작업";
+
+  if (status === "running") {
+    return `AGENT가 ${label} 작업을 시작합니다.`;
+  }
+
+  if (status === "completed") {
+    return `AGENT가 ${label} 작업을 완료했습니다.`;
+  }
+
+  if (status === "error") {
+    return `AGENT가 ${label} 작업 중 오류가 발생했습니다.`;
+  }
+
+  return `AGENT가 ${label} 작업을 준비합니다.`;
 }
 
 function isMeaningfulSourcePart(part) {

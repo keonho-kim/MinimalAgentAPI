@@ -20,6 +20,23 @@ def set_config(file_name: str = "env.toml") -> None:
         os.environ["LLM_MODEL_NAME"] = str(_llm_config.get("model_name"))
         os.environ["LLM_MAX_TOKENS"] = str(_llm_config.get("max_tokens"))
         os.environ["LLM_API_KEY"] = str(_llm_config.get("api_key"))
+        os.environ["LLM_TLS_VERIFY"] = str(
+            _llm_config.get("tls_verify", True)
+        ).lower()
+        ca_bundle_path = _llm_config.get("ca_bundle_path")
+        if ca_bundle_path:
+            os.environ["LLM_CA_BUNDLE_PATH"] = str(ca_bundle_path)
+        else:
+            os.environ.pop("LLM_CA_BUNDLE_PATH", None)
+
+        # LOAD LLM SUMMARIZER CONFIG
+        _llm_summary_config = data.get("llm", {}).get("summary", {})
+        os.environ["LLM_SUMMARY_TRIGGER_TOKEN_SIZE"] = str(
+            _llm_summary_config.get("trigger_token_size", 4096)
+        )
+        os.environ["LLM_SUMMARY_KEEP_MESSAGES"] = str(
+            _llm_summary_config.get("keep_messages", 20)
+        )
 
 
 def _find_config_file(file_name: str) -> Path:
