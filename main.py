@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from minial_agent.api.agent.router import router as agent_router
@@ -11,20 +11,34 @@ from minial_agent.common.config.loader import set_config
 
 set_config("env.toml")
 
-STATIC_DIR = Path(__file__).resolve().parent / "src" / "static"
-
-app = FastAPI(title="MinimalAgent API")
-app.include_router(agent_router)
-app.include_router(fs_router)
-app.include_router(processor_router)
+UI_DIST_DIR = Path(__file__).resolve().parent / "src" / "ui" / "dist"
 
 
-@app.get("/ui", include_in_schema=False)
-async def static_ui_index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
+    app = FastAPI(title="MinimalAgent API")
+    app.include_router(agent_router)
+    app.include_router(fs_router)
+    app.include_router(processor_router)
+
+    @app.get("/ui", include_in_schema=False)
+    async def static_ui_index():
+        index_path = ui_dist_dir / "index.html"
+        if not index_path.is_file():
+            return PlainTextResponse(
+                "Frontend build not found. Run `bun run build` in src/ui first.",
+                status_code=503,
+            )
+        return FileResponse(index_path)
+
+    app.mount(
+        "/ui",
+        StaticFiles(directory=ui_dist_dir, html=True, check_dir=False),
+        name="ui",
+    )
+    return app
 
 
-app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+app = create_app()
 
 
 if __name__ == "__main__":

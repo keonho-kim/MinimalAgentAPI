@@ -178,7 +178,9 @@ def test_stream_event_normalizer_extracts_langchain_message_objects() -> None:
     ]
 
 
-def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_object() -> None:
+def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_object() -> (
+    None
+):
     normalizer = StreamEventNormalizer()
     events = normalizer.normalize(
         {
@@ -208,6 +210,161 @@ def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_objec
     assert events[1]["input"] == {"file_path": "/README.md"}
 
 
+def test_stream_event_normalizer_hides_tool_selector_text() -> None:
+    normalizer = StreamEventNormalizer()
+
+    first_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "selector-run",
+            "data": {"chunk": '{"'},
+        }
+    )
+    second_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "selector-run",
+            "data": {"chunk": 'tools": ["grep"]}'},
+        }
+    )
+    normal_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "answer-run",
+            "data": {"chunk": '{"result": "ok"}'},
+        }
+    )
+
+    assert first_events == []
+    assert second_events == []
+    assert normal_events == [
+        {
+            "kind": "assistant_delta",
+            "id": "answer-run",
+            "parentIds": [],
+            "text": '{"result": "ok"}',
+        }
+    ]
+
+
+def test_stream_event_normalizer_hides_markdown_wrapped_tool_selector_text() -> None:
+    normalizer = StreamEventNormalizer()
+
+    fenced_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "selector-run",
+            "data": {"chunk": '```json\n{"tools": ["ls"]}\n```'},
+        }
+    )
+    inline_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "selector-run-2",
+            "data": {"chunk": '`{"tools": ["ls"]}`'},
+        }
+    )
+
+    assert fenced_events == []
+    assert inline_events == []
+
+
+def test_stream_event_normalizer_strips_tool_selector_prefix_from_answer() -> None:
+    normalizer = StreamEventNormalizer()
+
+    events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "answer-run",
+            "data": {
+                "chunk": '{"tools": ["write_file", "edit_file"]}전문 비서 팀장으로서 요청하신 내용을 수행했습니다.'
+            },
+        }
+    )
+
+    assert events == [
+        {
+            "kind": "assistant_delta",
+            "id": "answer-run",
+            "parentIds": [],
+            "text": "전문 비서 팀장으로서 요청하신 내용을 수행했습니다.",
+        }
+    ]
+
+
+def test_stream_event_normalizer_removes_repeated_tool_selector_json() -> None:
+    normalizer = StreamEventNormalizer()
+
+    events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "answer-run",
+            "data": {
+                "chunk": '{"tools": ["write_file"]}{"tools": ["edit_file"]}작업을 완료했습니다.'
+            },
+        }
+    )
+
+    assert events[0]["kind"] == "assistant_delta"
+    assert events[0]["text"] == "작업을 완료했습니다."
+
+
+def test_stream_event_normalizer_hides_pseudo_tool_call_text() -> None:
+    normalizer = StreamEventNormalizer()
+
+    events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "pseudo-call-run",
+            "data": {
+                "chunk": 'thought\n\ncall:filesystem:write_file{content:"",path:"/README.md"}'
+            },
+        }
+    )
+
+    assert events == []
+
+
+def test_stream_event_normalizer_preserves_stream_chunk_spacing() -> None:
+    normalizer = StreamEventNormalizer()
+    chunks = ["이미 ", "README.md", " 파일에 ", "매우 ", "상세하고 "]
+
+    events = [
+        event
+        for chunk in chunks
+        for event in normalizer.normalize(
+            {
+                "event": "on_chat_model_stream",
+                "run_id": "answer-run",
+                "data": {"chunk": chunk},
+            }
+        )
+    ]
+
+    assert "".join(event["text"] for event in events) == "".join(chunks)
+
+
+def test_stream_event_normalizer_preserves_whitespace_only_text_chunk() -> None:
+    normalizer = StreamEventNormalizer()
+
+    events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "answer-run",
+            "data": {"chunk": " "},
+        }
+    )
+
+    assert events == [
+        {
+            "kind": "assistant_delta",
+            "id": "answer-run",
+            "parentIds": [],
+            "text": " ",
+        }
+    ]
+
+
 def test_stream_event_normalizer_uses_server_tool_display_messages() -> None:
     normalizer = StreamEventNormalizer()
 
@@ -226,7 +383,9 @@ def test_stream_event_normalizer_uses_server_tool_display_messages() -> None:
     assert events[0]["message"] == "AGENT가 파일 작성을 시작합니다."
 
 
-def test_stream_event_normalizer_marks_write_file_parent_directory_creation(tmp_path) -> None:
+def test_stream_event_normalizer_marks_write_file_parent_directory_creation(
+    tmp_path,
+) -> None:
     normalizer = StreamEventNormalizer(workspace_root=tmp_path)
 
     start_events = normalizer.normalize(
@@ -240,7 +399,10 @@ def test_stream_event_normalizer_marks_write_file_parent_directory_creation(tmp_
 
     assert start_events[0]["kind"] == "activity"
     assert start_events[0]["status"] == "running"
-    assert start_events[0]["message"] == "AGENT가 필요한 폴더를 만들고 파일 작성을 시작합니다."
+    assert (
+        start_events[0]["message"]
+        == "AGENT가 필요한 폴더를 만들고 파일 작성을 시작합니다."
+    )
     assert start_events[0]["summary"]["createsParentDirectory"] is True
     assert start_events[0]["summary"]["parentPath"] == "/code"
 
@@ -255,12 +417,17 @@ def test_stream_event_normalizer_marks_write_file_parent_directory_creation(tmp_
     )
 
     assert end_events[0]["status"] == "completed"
-    assert end_events[0]["message"] == "AGENT가 필요한 폴더를 만들고 파일 작성을 완료했습니다."
+    assert (
+        end_events[0]["message"]
+        == "AGENT가 필요한 폴더를 만들고 파일 작성을 완료했습니다."
+    )
     assert end_events[0]["summary"]["parentPath"] == "/code"
     assert end_events[0]["summary"]["parentDirectoryCreated"] is True
 
 
-def test_stream_event_normalizer_does_not_mark_root_or_existing_write_parent(tmp_path) -> None:
+def test_stream_event_normalizer_does_not_mark_root_or_existing_write_parent(
+    tmp_path,
+) -> None:
     (tmp_path / "code").mkdir()
     normalizer = StreamEventNormalizer(workspace_root=tmp_path)
 
@@ -287,7 +454,9 @@ def test_stream_event_normalizer_does_not_mark_root_or_existing_write_parent(tmp
     assert "createsParentDirectory" not in existing_parent_events[0]["summary"]
 
 
-def test_stream_event_normalizer_ignores_write_file_paths_outside_workspace(tmp_path) -> None:
+def test_stream_event_normalizer_ignores_write_file_paths_outside_workspace(
+    tmp_path,
+) -> None:
     normalizer = StreamEventNormalizer(workspace_root=tmp_path)
 
     events = normalizer.normalize(

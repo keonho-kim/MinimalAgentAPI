@@ -5,8 +5,10 @@ import httpx
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware
-from langchain.agents.middleware import LLMToolSelectorMiddleware
+from langchain.agents.middleware import (
+    LLMToolSelectorMiddleware,
+    SummarizationMiddleware,
+)
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -14,7 +16,7 @@ from pydantic import SecretStr
 
 from minial_agent.integrations.upload import ensure_upload_workspace
 
-from .system_prompt import SYSTEM_PROMPT
+from .system_prompt import CORE_AGENT_SYSTEM_PROMPT, LLM_TOOL_SELECTOR_SYSTEM_PROMPT
 
 
 class AgentBuilder:
@@ -30,7 +32,7 @@ class AgentBuilder:
 
         return create_agent(
             model=self._get_llm(),
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=CORE_AGENT_SYSTEM_PROMPT,
             middleware=[
                 FilesystemMiddleware(
                     backend=FilesystemBackend(
@@ -42,15 +44,18 @@ class AgentBuilder:
                 SummarizationMiddleware(
                     model=self._get_llm(),
                     trigger=(
-                        "tokens", int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096))
+                        "tokens",
+                        int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096)),
                     ),
                     keep=(
-                        "messages", int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20"))
+                        "messages",
+                        int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20")),
                     ),
                 ),
                 LLMToolSelectorMiddleware(
-                    model=self._get_llm(),
+                    model=self._get_llm(disable_streaming=True),
                     max_tools=5,
+                    system_prompt=LLM_TOOL_SELECTOR_SYSTEM_PROMPT,
                     # always_include=["search"],
                 ),
             ],
@@ -71,7 +76,7 @@ class AgentBuilder:
         if not value or value in {".", ".."} or Path(value).name != value:
             raise ValueError(f"Invalid workspace path value: {value}")
 
-    def _get_llm(self):
+    def _get_llm(self, *, disable_streaming: bool | str = False):
         max_tokens = os.getenv("LLM_MAX_TOKENS")
         http_verify = self._get_http_verify()
         http_client_config = (
@@ -89,9 +94,8 @@ class AgentBuilder:
             api_key=SecretStr(os.getenv("LLM_API_KEY", "")),
             max_tokens=int(max_tokens) if max_tokens else None,
             stream_usage=True,
-            extra_body={
-                "enable_thinking": True
-            },
+            disable_streaming=disable_streaming,
+            extra_body={"enable_thinking": True},
             **http_client_config,
         )
 

@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: #fbfbfa;
+  --foreground: #202124;
+  --card: #ffffff;
+  --card-foreground: #202124;
+  --popover: #ffffff;
+  --popover-foreground: #202124;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f1ef;
+  --secondary-foreground: #202124;
+  --muted: #f7f6f3;
+  --muted-foreground: #6f6d68;
+  --accent: #edf3ec;
+  --accent-foreground: #346538;
+  --destructive: #9f2f2d;
+  --border: #e8e6e1;
+  --input: #e8e6e1;
+  --ring: #111111;
+  --font-sans: "SF Pro Display", "Geist Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", "JetBrains Mono", monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.message-renderer {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.message-renderer > :first-child {
+  margin-top: 0;
+}
+
+.message-renderer > :last-child {
+  margin-bottom: 0;
+}
+
+.message-renderer p,
+.message-renderer ul,
+.message-renderer ol,
+.message-renderer blockquote,
+.message-renderer pre,
+.message-renderer table,
+.message-renderer .katex-display {
+  margin-block: 0.75rem;
+}
+
+.message-renderer ul,
+.message-renderer ol {
+  padding-inline-start: 1.25rem;
+}
+
+.message-renderer li + li {
+  margin-top: 0.25rem;
+}
+
+.message-renderer blockquote {
+  border-inline-start: 3px solid color-mix(in srgb, currentColor 22%, transparent);
+  color: color-mix(in srgb, currentColor 74%, transparent);
+  padding-inline-start: 0.85rem;
+}
+
+.message-renderer a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message-renderer code {
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.1rem 0.28rem;
+}
+
+.message-renderer pre {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  padding: 0.85rem;
+}
+
+.message-renderer pre code {
+  display: block;
+  background: transparent;
+  padding: 0;
+}
+
+.message-renderer table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.message-renderer th,
+.message-renderer td {
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  padding: 0.35rem 0.55rem;
+  text-align: start;
+}
+
+.message-renderer th {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-weight: 600;
+}
+
+.message-renderer hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  margin-block: 1rem;
+}
+
+.message-renderer img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.message-renderer .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
+}

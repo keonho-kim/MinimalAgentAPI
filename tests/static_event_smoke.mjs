@@ -75,6 +75,33 @@ assert.equal(structuredReasoningEvents[0].text, "I should be concise.");
 assert.equal(structuredReasoningEvents[1].kind, "assistant_delta");
 assert.equal(structuredReasoningEvents[1].text, "간단히 답변하겠습니다.");
 
+const selectorStartEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "selector-run",
+  data: {
+    chunk: '{"',
+  },
+});
+const selectorEndEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "selector-run",
+  data: {
+    chunk: 'tools": ["grep"]}',
+  },
+});
+const normalJsonTextEvents = normalizeStreamEvent({
+  event: "on_chat_model_stream",
+  run_id: "json-answer-run",
+  data: {
+    chunk: '{"result": "ok"}',
+  },
+});
+
+assert.equal(selectorStartEvents[0].kind, "ignored");
+assert.equal(selectorEndEvents[0].kind, "ignored");
+assert.equal(normalJsonTextEvents[0].kind, "assistant_delta");
+assert.equal(normalJsonTextEvents[0].text, '{"result": "ok"}');
+
 resetEventNormalization();
 
 const nonStreamingEndEvents = normalizeStreamEvent({
@@ -189,9 +216,9 @@ assert.equal(
 );
 assert.equal(
   activityRenderKey({ id: "tool-run", status: "running" }),
-  "tool-run:running",
+  "tool-run",
 );
 assert.equal(
   activityRenderKey({ id: "tool-run", status: "completed" }),
-  "tool-run:completed",
+  "tool-run",
 );

@@ -13,6 +13,9 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
     def fake_summarization_middleware(**kwargs):
         return {"summarization": kwargs}
 
+    def fake_tool_selector_middleware(**kwargs):
+        return {"tool_selector": kwargs}
+
     monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
     monkeypatch.setattr(agent_builder, "create_agent", fake_create_agent)
     monkeypatch.setattr(
@@ -20,7 +23,18 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
         "SummarizationMiddleware",
         fake_summarization_middleware,
     )
-    monkeypatch.setattr(AgentBuilder, "_get_llm", lambda self: "fake-model")
+    monkeypatch.setattr(
+        agent_builder,
+        "LLMToolSelectorMiddleware",
+        fake_tool_selector_middleware,
+    )
+    llm_calls = []
+
+    def fake_get_llm(self, *, disable_streaming=False):
+        llm_calls.append(disable_streaming)
+        return f"fake-model:{disable_streaming}"
+
+    monkeypatch.setattr(AgentBuilder, "_get_llm", fake_get_llm)
 
     AgentBuilder().get_agent(user_id="user", uuid="session")
 
@@ -30,7 +44,10 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
     assert (workspace / ".outputs").is_dir()
     assert (workspace / ".registry" / "files.json").is_file()
     assert (workspace / ".converted").is_dir()
-    assert captured["model"] == "fake-model"
+    assert captured["model"] == "fake-model:False"
+    assert captured["middleware"][1]["summarization"]["model"] == "fake-model:False"
+    assert captured["middleware"][2]["tool_selector"]["model"] == "fake-model:True"
+    assert True in llm_calls
 
 
 def test_agent_builder_uses_same_workspace_for_user_sessions(
