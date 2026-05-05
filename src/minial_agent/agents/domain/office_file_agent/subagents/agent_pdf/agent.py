@@ -1,7 +1,7 @@
 from deepagents import SubAgent
 
-from .system_prompt import SYSTEM_PROMPT
-from .tools import answer_pdf_question
+from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.system_prompt import SYSTEM_PROMPT
+from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.workflow.read import answer_pdf_question
 
 
 def build_pdf_subagent() -> SubAgent:

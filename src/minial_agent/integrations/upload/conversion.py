@@ -4,7 +4,7 @@ from pathlib import Path
 
 import fitz
 
-from .models import UploadedPage
+from minial_agent.integrations.upload.models import UploadedPage
 
 
 class ConversionError(RuntimeError):

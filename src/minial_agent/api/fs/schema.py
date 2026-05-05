@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,19 @@ class FsListItem(BaseModel):
 class FsListResponse(BaseModel):
     path: str
     files: list[FsListItem]
+
+
+class FsSearchResponse(BaseModel):
+    matches: list[FsListItem]
+
+
+class FsPreviewResponse(BaseModel):
+    path: str
+    filename: str
+    file_type: str
+    preview_type: str
+    source_url: str | None = None
+    workbook: dict[str, Any] | None = None
 
 
 class FsCreateRequest(BaseModel):

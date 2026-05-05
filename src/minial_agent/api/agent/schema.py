@@ -1,3 +1,5 @@
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -15,3 +17,23 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     stream_id: str
+
+
+class HitlEditedAction(BaseModel):
+    name: str = Field(min_length=1)
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class HitlDecision(BaseModel):
+    type: Literal["approve", "edit", "reject"]
+    edited_action: HitlEditedAction | None = None
+    message: str | None = None
+
+
+class HitlResumeRequest(BaseModel):
+    decisions: list[HitlDecision] = Field(min_length=1)
+
+
+class HitlResumeResponse(BaseModel):
+    stream_id: str
+    status: str

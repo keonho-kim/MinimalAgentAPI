@@ -5,9 +5,9 @@ from typing import Sequence
 
 from starlette.datastructures import UploadFile
 
-from .conversion import ConversionError
-from .models import UploadWorkspace
-from .registry import UploadRegistry
+from minial_agent.integrations.upload.conversion import ConversionError
+from minial_agent.integrations.upload.models import UploadWorkspace
+from minial_agent.integrations.upload.registry import UploadRegistry
 
 
 SUPPORTED_FILE_TYPES = frozenset({"hwpx", "docx", "pptx", "xlsx", "pdf"})

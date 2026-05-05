@@ -1,13 +1,21 @@
+import type { HitlRequest } from "@/lib/api";
+
 export type AgentUiEvent =
   | {
       kind: "assistant_delta" | "think_delta";
       id?: string;
+      sourceEvent?: string;
+      name?: string;
+      runId?: string;
       parentIds?: string[];
       text?: string;
     }
   | {
       kind: "activity";
       id?: string;
+      sourceEvent?: string;
+      runId?: string;
+      parentIds?: string[];
       name?: string;
       label?: string;
       message?: string;
@@ -15,16 +23,14 @@ export type AgentUiEvent =
       input?: unknown;
       output?: unknown;
       summary?: unknown;
-    }
-  | {
-      kind: "raw";
-      raw: unknown;
     };
 
 export function openChatEventSource(
   streamId: string,
   handlers: {
     onEvent(event: AgentUiEvent): void;
+    onHitlRequest(event: HitlRequest): void;
+    onHitlResumed?(event: { stream_id?: string; status?: string }): void;
     onDone(): void;
     onError(message: string): void;
   },
@@ -37,6 +43,15 @@ export function openChatEventSource(
 
   source.addEventListener("done", () => {
     handlers.onDone();
+  });
+
+  source.addEventListener("hitl_request", (streamEvent) => {
+    handlers.onHitlRequest(JSON.parse(streamEvent.data) as HitlRequest);
+  });
+
+  source.addEventListener("hitl_resumed", (streamEvent) => {
+    const data = streamEvent.data ? JSON.parse(streamEvent.data) : {};
+    handlers.onHitlResumed?.(data);
   });
 
   source.addEventListener("error", (streamEvent) => {

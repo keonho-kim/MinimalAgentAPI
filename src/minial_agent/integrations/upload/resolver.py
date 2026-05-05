@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import UploadWorkspace
-from .registry import UploadRegistry
-from .visibility import (
+from minial_agent.integrations.upload.models import UploadWorkspace
+from minial_agent.integrations.upload.registry import UploadRegistry
+from minial_agent.integrations.upload.visibility import (
     WorkspaceVisibilityError,
     normalize_public_workspace_path,
     physical_to_public_workspace_path,

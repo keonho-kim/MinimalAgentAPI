@@ -1,7 +1,8 @@
 from deepagents import SubAgent
 
-from .system_prompt import SYSTEM_PROMPT
-from .tools import answer_docx_question, edit_docx
+from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.system_prompt import SYSTEM_PROMPT
+from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.edit import edit_docx
+from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.read import answer_docx_question
 
 
 def build_docx_subagent() -> SubAgent:

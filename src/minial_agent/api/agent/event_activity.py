@@ -4,7 +4,7 @@ from typing import Any
 
 from minial_agent.constants.tool_mapper import get_tool_label, get_tool_message
 
-from .event_extraction import jsonable_mapping, object_or_empty
+from minial_agent.api.agent.event_extraction import jsonable_mapping, object_or_empty
 
 WRITE_FILE_PARENT_RUNNING_MESSAGE = (
     "AGENT가 필요한 폴더를 만들고 파일 작성을 시작합니다."
@@ -12,6 +12,14 @@ WRITE_FILE_PARENT_RUNNING_MESSAGE = (
 WRITE_FILE_PARENT_COMPLETED_MESSAGE = (
     "AGENT가 필요한 폴더를 만들고 파일 작성을 완료했습니다."
 )
+HITL_TOOL_NAMES = {
+    "write_file",
+    "edit_file",
+    "edit_docx",
+    "edit_hwpx",
+    "edit_pptx",
+    "edit_xlsx",
+}
 
 
 class ActivityEventBuilder:
@@ -54,6 +62,10 @@ class ActivityEventBuilder:
         elif folder_context and status == "error":
             summary["parentDirectoryCreated"] = False
 
+        if name in HITL_TOOL_NAMES and status in {"pending", "running"}:
+            summary["requiresApproval"] = True
+            summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
+
         if isinstance(activity_id, str) and status in {"completed", "error"}:
             self._activity_contexts.pop(activity_id, None)
 
@@ -61,6 +73,8 @@ class ActivityEventBuilder:
             "kind": "activity",
             "type": activity_type,
             "id": activity_id,
+            "sourceEvent": raw.get("event"),
+            "runId": activity_id,
             "parentIds": raw.get("parent_ids") or [],
             "name": name,
             "label": get_tool_label(name),
@@ -68,6 +82,55 @@ class ActivityEventBuilder:
             "status": status,
             "input": input_value,
             "output": output,
+            "summary": summary,
+        }
+
+    def create_model(self, raw: dict[str, Any], status: str) -> dict[str, Any]:
+        run_id = raw.get("run_id") or f"model:{status}"
+        return {
+            "kind": "activity",
+            "type": "model",
+            "id": run_id,
+            "sourceEvent": raw.get("event"),
+            "runId": run_id,
+            "parentIds": raw.get("parent_ids") or [],
+            "name": raw.get("name") or "model",
+            "label": "응답 생성",
+            "message": (
+                "AGENT가 요청을 분석합니다."
+                if status == "running"
+                else "AGENT가 답변을 정리합니다."
+            ),
+            "status": status,
+            "summary": _event_metadata_summary(raw),
+        }
+
+    def create_custom(self, raw: dict[str, Any]) -> dict[str, Any]:
+        data = object_or_empty(raw.get("data"))
+        summary = object_or_empty(data.get("summary"))
+        name = str(data.get("name") or raw.get("name") or "custom")
+        status = str(data.get("status") or "running")
+        label = str(data.get("label") or "작업 진행")
+        message = str(data.get("message") or "AGENT가 작업을 진행합니다.")
+
+        raw_run_id = raw.get("run_id")
+        activity_id = data.get("id") or (
+            f"{raw_run_id}:{name}" if raw_run_id else f"custom:{name}"
+        )
+
+        return {
+            "kind": "activity",
+            "type": str(data.get("type") or "workflow"),
+            "id": activity_id,
+            "sourceEvent": raw.get("event"),
+            "runId": raw.get("run_id"),
+            "parentIds": raw.get("parent_ids") or [],
+            "name": name,
+            "label": label,
+            "message": message,
+            "status": status,
+            "input": data.get("input"),
+            "output": data.get("output"),
             "summary": summary,
         }
 
@@ -81,18 +144,24 @@ class ActivityEventBuilder:
         name = tool_call.get("name") or "tool"
         input_value = tool_call.get("args")
         status = "pending"
+        summary = _summarize_activity(name, input_value)
+        if name in HITL_TOOL_NAMES:
+            summary["requiresApproval"] = True
+            summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
 
         return {
             "kind": "activity",
             "type": "tool",
             "id": tool_call.get("id") or f"{run_id}:{tool_call.get('index', index)}",
+            "sourceEvent": raw.get("event"),
+            "runId": run_id,
             "parentIds": raw.get("parent_ids") or [],
             "name": name,
             "label": get_tool_label(name),
             "message": get_tool_message(name, status),
             "status": status,
             "input": input_value,
-            "summary": _summarize_activity(name, input_value),
+            "summary": summary,
         }
 
     def normalize_visible_chain(
@@ -101,7 +170,12 @@ class ActivityEventBuilder:
         event_name: str,
     ) -> dict[str, Any] | None:
         name = raw.get("name") or ""
-        looks_like_subagent = name == "task" or "subagent" in name.lower()
+        looks_like_subagent = (
+            name == "task"
+            or "subagent" in name.lower()
+            or "agent" in name.lower()
+            or name.startswith(("answer_", "edit_"))
+        )
 
         if not looks_like_subagent:
             return None
@@ -202,6 +276,17 @@ def _output_looks_error(output: Any) -> bool:
         return bool(error)
 
     return False
+
+
+def _event_metadata_summary(raw: dict[str, Any]) -> dict[str, Any]:
+    metadata = object_or_empty(raw.get("metadata"))
+    node = metadata.get("langgraph_node")
+    model = metadata.get("ls_model_name") or metadata.get("model_name")
+    return {
+        "description": "모델 응답을 생성하는 단계입니다.",
+        "node": node,
+        "model": model,
+    }
 
 
 def _preview_value(value: Any) -> str | None:

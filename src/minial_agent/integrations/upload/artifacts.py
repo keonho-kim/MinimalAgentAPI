@@ -2,8 +2,8 @@ import json
 import shutil
 from pathlib import Path
 
-from .conversion import convert_to_pdf, copy_pdf, render_pdf_pages
-from .xlsx import build_xlsx_artifacts
+from minial_agent.integrations.upload.conversion import convert_to_pdf, copy_pdf, render_pdf_pages
+from minial_agent.integrations.upload.xlsx import build_xlsx_artifacts
 
 
 def build_upload_artifacts(
@@ -16,6 +16,8 @@ def build_upload_artifacts(
 ) -> None:
     pdf_path = converted_dir / "source.pdf"
     pages_dir = converted_dir / "pages"
+    workbook_index_path = converted_dir / "workbook_index.json"
+    sheet_pages_root = converted_dir / "xlsx" / "sheets"
 
     if file_type == "pdf":
         copy_pdf(source_path, pdf_path)
@@ -25,11 +27,20 @@ def build_upload_artifacts(
         shutil.rmtree(pdf_output_dir, ignore_errors=True)
 
     pages = render_pdf_pages(pdf_path, pages_dir)
+    if file_type == "xlsx":
+        build_xlsx_artifacts(
+            source_path=source_path,
+            file_id=file_id,
+            converted_dir=converted_dir,
+            cache_dir=cache_dir,
+        )
+
     manifest = {
         "file_id": file_id,
         "source_filename": source_path.name,
         "source_path": str(source_path),
         "file_type": file_type,
+        "converted_dir": str(converted_dir),
         "pdf_path": str(pdf_path),
         "pages": [
             {
@@ -41,15 +52,11 @@ def build_upload_artifacts(
         ],
         "status": "converted",
     }
+    if file_type == "xlsx":
+        manifest["workbook_index_path"] = str(workbook_index_path)
+        manifest["sheet_pages_root"] = str(sheet_pages_root)
+
     (converted_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-
-    if file_type == "xlsx":
-        build_xlsx_artifacts(
-            source_path=source_path,
-            file_id=file_id,
-            converted_dir=converted_dir,
-            cache_dir=cache_dir,
-        )

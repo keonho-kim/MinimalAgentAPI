@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, UploadFile
 
-from .schema import FileListResponse, UploadResponse
-from .service import processor_service
+from minial_agent.api.processor.schema import UploadResponse
+from minial_agent.api.processor.service import processor_service
 
 
 router = APIRouter(prefix="/api")
@@ -18,8 +18,3 @@ async def upload(
         uuid=uuid,
         files=files,
     )
-
-
-@router.get("/files", response_model=FileListResponse)
-async def list_files(user_id: str, uuid: str) -> FileListResponse:
-    return processor_service.list_files(user_id=user_id, uuid=uuid)

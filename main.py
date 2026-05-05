@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from minial_agent.api.agent.router import router as agent_router
@@ -19,6 +19,10 @@ def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(fs_router)
     app.include_router(processor_router)
+
+    @app.get("/", include_in_schema=False)
+    async def redirect_to_ui():
+        return RedirectResponse(url="/ui")
 
     @app.get("/ui", include_in_schema=False)
     async def static_ui_index():

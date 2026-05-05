@@ -3,10 +3,16 @@ import re
 import shutil
 import tempfile
 import zipfile
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree
 
-from .conversion import ConversionError, convert_to_pdf, render_pdf_pages
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+
+from minial_agent.integrations.upload.conversion import ConversionError, convert_to_pdf, render_pdf_pages
 
 
 SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -40,10 +46,17 @@ def build_xlsx_artifacts(
             "used_range": sheet["used_range"],
             "has_formulas": sheet["has_formulas"],
             "formula_count": sheet["formula_count"],
+            "has_tables": sheet.get("has_tables", False),
+            "has_charts": sheet.get("has_charts", False),
             "sheet_summary_path": str(sheet_summary_path),
         }
 
         sheet_summary = dict(sheet_entry)
+        sheet_summary["headers"] = sheet.get("headers", [])
+        sheet_summary["sample_rows"] = sheet.get("sample_rows", [])
+        sheet_summary["formula_summary"] = sheet.get("formula_summary", "")
+        sheet_summary["chart_summary"] = sheet.get("chart_summary", "")
+        sheet_summary["text_summary"] = sheet.get("text_summary", "")
         try:
             pages = _render_single_sheet(
                 source_path=source_path,
@@ -81,6 +94,129 @@ def build_xlsx_artifacts(
 
 
 def inspect_workbook(source_path: Path) -> list[dict[str, object]]:
+    try:
+        return _inspect_workbook_with_openpyxl(source_path)
+    except Exception:
+        return _inspect_workbook_with_zip(source_path)
+
+
+def build_xlsx_preview(source_path: Path) -> dict[str, Any]:
+    workbook = load_workbook(source_path, read_only=False, data_only=False)
+    value_workbook = load_workbook(source_path, read_only=False, data_only=True)
+    try:
+        sheets = []
+        for worksheet in workbook.worksheets:
+            value_sheet = value_workbook[worksheet.title]
+            max_row = max(worksheet.max_row or 1, 1)
+            max_column = max(worksheet.max_column or 1, 1)
+            cells = []
+
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    value = cell.value
+                    display_value = value_sheet[cell.coordinate].value
+                    if value is None and display_value is None:
+                        continue
+                    cells.append(
+                        {
+                            "address": cell.coordinate,
+                            "row": cell.row,
+                            "column": cell.column,
+                            "value": _json_value(display_value if display_value is not None else value),
+                            "formula": value if isinstance(value, str) and value.startswith("=") else None,
+                            "style": _cell_style(cell),
+                        }
+                    )
+
+            sheets.append(
+                {
+                    "id": worksheet.title,
+                    "name": worksheet.title,
+                    "visible": worksheet.sheet_state == "visible",
+                    "index": len(sheets),
+                    "used_range": worksheet.calculate_dimension(),
+                    "row_count": max_row,
+                    "column_count": max_column,
+                    "columns": [
+                        {
+                            "index": index,
+                            "label": get_column_letter(index),
+                            "width": _column_width(worksheet.column_dimensions[get_column_letter(index)].width),
+                        }
+                        for index in range(1, max_column + 1)
+                    ],
+                    "rows": [
+                        {
+                            "index": index,
+                            "height": _row_height(worksheet.row_dimensions[index].height),
+                        }
+                        for index in range(1, max_row + 1)
+                    ],
+                    "merged_ranges": [str(range_) for range_ in worksheet.merged_cells.ranges],
+                    "cells": cells,
+                }
+            )
+
+        return {
+            "sheet_count": len(sheets),
+            "sheets": sheets,
+        }
+    finally:
+        workbook.close()
+        value_workbook.close()
+
+
+def _inspect_workbook_with_openpyxl(source_path: Path) -> list[dict[str, object]]:
+    workbook = load_workbook(source_path, read_only=False, data_only=False)
+    try:
+        sheets = []
+        for worksheet in workbook.worksheets:
+            formulas = [
+                cell.coordinate
+                for row in worksheet.iter_rows()
+                for cell in row
+                if isinstance(cell.value, str) and cell.value.startswith("=")
+            ]
+            rows = list(
+                worksheet.iter_rows(
+                    min_row=1,
+                    max_row=min(6, worksheet.max_row),
+                    values_only=True,
+                )
+            )
+            headers = [str(value) for value in rows[0] if value is not None] if rows else []
+            sample_rows = [
+                [value for value in row]
+                for row in rows[1:6]
+                if any(value is not None for value in row)
+            ]
+            table_count = len(getattr(worksheet, "tables", {}))
+            chart_count = len(getattr(worksheet, "_charts", []))
+            used_range = worksheet.calculate_dimension()
+            sheets.append(
+                {
+                    "sheet_name": worksheet.title,
+                    "visible": worksheet.sheet_state == "visible",
+                    "used_range": used_range,
+                    "headers": headers,
+                    "sample_rows": sample_rows,
+                    "has_formulas": bool(formulas),
+                    "formula_count": len(formulas),
+                    "has_tables": table_count > 0,
+                    "has_charts": chart_count > 0,
+                    "formula_summary": _formula_summary(formulas),
+                    "chart_summary": (
+                        f"{chart_count} chart(s) exist." if chart_count else "No charts."
+                    ),
+                    "text_summary": _text_summary(worksheet.title, used_range, headers),
+                }
+            )
+        return sheets
+    finally:
+        workbook.close()
+
+
+def _inspect_workbook_with_zip(source_path: Path) -> list[dict[str, object]]:
     with zipfile.ZipFile(source_path) as workbook:
         workbook_xml = ElementTree.fromstring(workbook.read("xl/workbook.xml"))
         rels = _read_workbook_relationships(workbook)
@@ -99,12 +235,77 @@ def inspect_workbook(source_path: Path) -> list[dict[str, object]]:
                     "sheet_name": sheet.attrib.get("name", ""),
                     "visible": state == "visible",
                     "used_range": dimension.attrib.get("ref", "") if dimension is not None else "",
+                    "headers": [],
+                    "sample_rows": [],
                     "has_formulas": bool(formulas),
                     "formula_count": len(formulas),
+                    "has_tables": False,
+                    "has_charts": False,
+                    "formula_summary": _formula_summary(
+                        [formula.text or "" for formula in formulas]
+                    ),
+                    "chart_summary": "No charts.",
+                    "text_summary": "",
                 }
             )
 
         return sheets
+
+
+def _formula_summary(formulas: list[str]) -> str:
+    if not formulas:
+        return "No formulas."
+    examples = ", ".join(formulas[:5])
+    return f"{len(formulas)} formula(s). Examples: {examples}"
+
+
+def _text_summary(sheet_name: str, used_range: str, headers: list[str]) -> str:
+    header_text = ", ".join(headers[:8])
+    if header_text:
+        return f"{sheet_name} sheet uses {used_range} with headers: {header_text}."
+    return f"{sheet_name} sheet uses {used_range}."
+
+
+def _json_value(value: Any) -> str | int | float | bool | None:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime | date | time):
+        return value.isoformat()
+    if isinstance(value, timedelta):
+        return str(value)
+    return str(value)
+
+
+def _cell_style(cell) -> dict[str, Any]:
+    font = cell.font
+    fill = cell.fill
+    alignment = cell.alignment
+    style: dict[str, Any] = {
+        "bold": bool(font.bold),
+        "italic": bool(font.italic),
+        "horizontal": alignment.horizontal,
+        "vertical": alignment.vertical,
+    }
+    if font.color and font.color.type == "rgb" and font.color.rgb:
+        style["color"] = _argb_to_css(font.color.rgb)
+    if fill.fill_type == "solid" and fill.fgColor.type == "rgb" and fill.fgColor.rgb:
+        style["background"] = _argb_to_css(fill.fgColor.rgb)
+    return style
+
+
+def _argb_to_css(value: str) -> str:
+    normalized = value[-6:]
+    return f"#{normalized}"
+
+
+def _column_width(width: float | None) -> int:
+    return max(48, min(int((width or 8.43) * 8), 240))
+
+
+def _row_height(height: float | None) -> int:
+    return max(24, min(int((height or 15) * 1.4), 120))
 
 
 def _render_single_sheet(

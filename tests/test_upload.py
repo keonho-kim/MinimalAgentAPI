@@ -76,69 +76,9 @@ def test_upload_pdf_creates_registry_manifest_and_page_image(tmp_path, monkeypat
     manifest_path = workspace / ".converted" / "file_001" / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     assert manifest["status"] == "converted"
+    assert manifest["converted_dir"].endswith(".converted/file_001")
     assert manifest["pages"][0]["image_filename"] == "page_001.png"
     assert (workspace / ".converted" / "file_001" / "pages" / "page_001.png").is_file()
-
-
-def test_list_files_returns_empty_registry(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
-    app = FastAPI()
-    app.include_router(processor_router)
-    client = TestClient(app)
-
-    response = client.get("/api/files", params={"user_id": "user", "uuid": "session"})
-
-    assert response.status_code == 200
-    assert response.json() == {"files": []}
-
-
-def test_list_files_returns_public_upload_registry(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
-    app = FastAPI()
-    app.include_router(processor_router)
-    client = TestClient(app)
-
-    upload_response = client.post(
-        "/api/upload",
-        data={"user_id": "user", "uuid": "session"},
-        files=[("files", ("sample.pdf", _make_pdf(), "application/pdf"))],
-    )
-    response = client.get("/api/files", params={"user_id": "user", "uuid": "other"})
-
-    assert upload_response.status_code == 200
-    assert response.status_code == 200
-    assert response.json() == {
-        "files": [
-            {
-                "file_id": "file_001",
-                "filename": "sample.pdf",
-                "file_type": "pdf",
-                "status": "converted",
-                "error": None,
-            }
-        ]
-    }
-
-
-def test_list_files_isolated_by_user_id(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
-    app = FastAPI()
-    app.include_router(processor_router)
-    client = TestClient(app)
-
-    upload_response = client.post(
-        "/api/upload",
-        data={"user_id": "user", "uuid": "session"},
-        files=[("files", ("sample.pdf", _make_pdf(), "application/pdf"))],
-    )
-    response = client.get(
-        "/api/files",
-        params={"user_id": "other-user", "uuid": "session"},
-    )
-
-    assert upload_response.status_code == 200
-    assert response.status_code == 200
-    assert response.json() == {"files": []}
 
 
 def test_uploads_share_user_workspace_across_uuids(tmp_path, monkeypatch) -> None:
@@ -230,8 +170,15 @@ def test_inspect_workbook_reads_sheet_metadata(tmp_path) -> None:
             "sheet_name": "Summary",
             "visible": True,
             "used_range": "A1:B2",
+            "headers": [],
+            "sample_rows": [],
             "has_formulas": True,
             "formula_count": 1,
+            "has_tables": False,
+            "has_charts": False,
+            "formula_summary": "1 formula(s). Examples: SUM(B1:B2)",
+            "chart_summary": "No charts.",
+            "text_summary": "",
         }
     ]
 

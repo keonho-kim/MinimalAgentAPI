@@ -6,16 +6,16 @@ from starlette.datastructures import UploadFile
 
 from minial_agent.common.locks import WorkspaceLockManager, workspace_lock_manager
 
-from .artifacts import build_upload_artifacts
-from .models import UploadedFileResult, UploadWorkspace
-from .registry import UploadRegistry
-from .storage import (
+from minial_agent.integrations.upload.artifacts import build_upload_artifacts
+from minial_agent.integrations.upload.models import UploadedFileResult, UploadWorkspace
+from minial_agent.integrations.upload.registry import UploadRegistry
+from minial_agent.integrations.upload.storage import (
     SUPPORTED_FILE_TYPES,
     UploadItem,
     reserve_uploads,
     save_upload_file,
 )
-from .workspace import ensure_upload_workspace, get_workspace_root
+from minial_agent.integrations.upload.workspace import ensure_upload_workspace, get_workspace_root
 
 
 class UploadPipeline:

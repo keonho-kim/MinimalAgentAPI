@@ -15,16 +15,16 @@ function SheetContent({
 }: React.ComponentProps<typeof SheetPrimitive.Content>) {
   return (
     <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay className="fixed inset-0 bg-black/20" />
+      <SheetPrimitive.Overlay className="fixed inset-0 bg-black/20 data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:fade-in" />
       <SheetPrimitive.Content
         className={cn(
-          "fixed inset-y-0 right-0 w-full max-w-md border-l bg-background p-5",
+          "fixed inset-y-0 right-0 w-full max-w-md border-l bg-card p-5 shadow-[0_8px_32px_rgba(31,35,32,0.08)] data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:animate-in data-[state=open]:slide-in-from-right",
           className,
         )}
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-md opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
+        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-md opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background">
           <X className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

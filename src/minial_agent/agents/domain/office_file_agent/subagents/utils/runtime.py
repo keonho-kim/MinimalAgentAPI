@@ -2,6 +2,7 @@ from typing import Any
 
 from langgraph.prebuilt.tool_node import ToolRuntime
 
+from minial_agent.common.llm import llm_client
 from minial_agent.integrations.upload import ensure_upload_workspace, get_workspace_root
 from minial_agent.integrations.upload.models import UploadWorkspace
 
@@ -23,7 +24,7 @@ def workspace_from_tool_runtime(runtime: ToolRuntime) -> UploadWorkspace:
 
 def sanitize_tool_error(error: Exception) -> str:
     message = str(error)
-    for token in (".converted", ".registry", ".jobs", ".cache"):
+    for token in (".converted", ".registry", ".jobs", ".cache", ".outputs"):
         message = message.replace(token, "[internal]")
     return message
 
@@ -38,3 +39,15 @@ def compact_artifact_summary(artifact: dict[str, Any]) -> str:
     if "sheet_count" in artifact:
         parts.append(f"sheets={artifact.get('sheet_count', 0)}")
     return ", ".join(parts)
+
+
+def invoke_text_llm(prompt: str, *, disable_streaming: bool | str = False) -> str:
+    response = llm_client(disable_streaming=disable_streaming).invoke(prompt)
+    return response_content(response)
+
+
+def response_content(response: Any) -> str:
+    content = getattr(response, "content", response)
+    if isinstance(content, list):
+        return " ".join(str(item) for item in content)
+    return str(content)

@@ -1,18 +1,32 @@
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from langchain_core.load.dump import dumps as langchain_dumps
+from langgraph.types import Command
 
 from minial_agent.agents.core.agent_registry import AgentRegistry
 from minial_agent.common.locks import WorkspaceLockManager, workspace_lock_manager
 from minial_agent.common.queue import InMemoryQueue
+from minial_agent.constants.user_request import USER_REQUEST
 from minial_agent.integrations.upload import ensure_upload_workspace, get_workspace_root
 
-from .events import StreamEventNormalizer
-from .schema import ChatRequest
+from minial_agent.api.agent.events import StreamEventNormalizer
+from minial_agent.api.agent.schema import ChatRequest, HitlResumeRequest, HitlResumeResponse
+
+
+@dataclass(frozen=True)
+class PendingHitl:
+    stream_id: str
+    user_id: str
+    uuid: str
+    thread_id: str
+    request: ChatRequest
+    payload: dict[str, Any]
 
 
 class ChatService:
@@ -26,6 +40,7 @@ class ChatService:
         self.queue = queue or InMemoryQueue()
         self.lock_manager = lock_manager or workspace_lock_manager
         self._normalizers: dict[str, StreamEventNormalizer] = {}
+        self._pending_hitl: dict[str, PendingHitl] = {}
 
     def enqueue_chat(self, request: ChatRequest) -> str:
         stream_id = str(uuid4())
@@ -69,7 +84,12 @@ class ChatService:
                 )
 
                 messages = [message.model_dump() for message in request.chat_history]
-                messages.append({"role": "user", "content": request.message})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": USER_REQUEST.format(user_query=request.message),
+                    }
+                )
 
                 config = {
                     "configurable": {
@@ -82,21 +102,18 @@ class ChatService:
                     workspace_root=self._get_workspace_files_root(request),
                 )
 
-                async for event in agent.astream_events(
-                    {"messages": messages},
+                interrupted = await self._stream_agent_events(
+                    stream_id=stream_id,
+                    agent=agent,
+                    input_value={"messages": messages},
                     config=config,
-                    version="v2",
-                ):
-                    for ui_event in normalizer.normalize(event):
-                        await self.queue.rpush(
-                            queue_key,
-                            {
-                                "event": "agent_ui",
-                                "data": ui_event,
-                            },
-                        )
+                    normalizer=normalizer,
+                    request=request,
+                )
 
-            await self.queue.rpush(queue_key, {"event": "done", "data": {}})
+            if not interrupted:
+                self._normalizers.pop(stream_id, None)
+                await self.queue.rpush(queue_key, {"event": "done", "data": {}})
         except Exception as exc:
             await self.queue.rpush(
                 queue_key,
@@ -105,8 +122,82 @@ class ChatService:
                     "data": {"message": str(exc)},
                 },
             )
-        finally:
+            self._pending_hitl.pop(stream_id, None)
             self._normalizers.pop(stream_id, None)
+
+    async def resume_hitl(
+        self,
+        *,
+        stream_id: str,
+        request: HitlResumeRequest,
+    ) -> HitlResumeResponse:
+        pending = self._pending_hitl.get(stream_id)
+        if pending is None:
+            raise HTTPException(status_code=404, detail="Pending HITL request not found.")
+
+        asyncio.create_task(
+            self._resume_agent(
+                pending=pending,
+                decisions=[
+                    decision.model_dump(exclude_none=True)
+                    for decision in request.decisions
+                ],
+            )
+        )
+        return HitlResumeResponse(stream_id=stream_id, status="accepted")
+
+    async def _resume_agent(
+        self,
+        *,
+        pending: PendingHitl,
+        decisions: list[dict[str, Any]],
+    ) -> None:
+        queue_key = self._queue_key(pending.stream_id)
+        try:
+            await self.queue.rpush(
+                queue_key,
+                {
+                    "event": "hitl_resumed",
+                    "data": {"stream_id": pending.stream_id, "status": "accepted"},
+                },
+            )
+            async with self.lock_manager.lock(pending.user_id):
+                agent = self.registry.get_agent(
+                    user_id=pending.user_id,
+                    uuid=pending.uuid,
+                )
+                config = {
+                    "configurable": {
+                        "thread_id": pending.thread_id,
+                    }
+                }
+                normalizer = self._get_normalizer(
+                    pending.stream_id,
+                    workspace_root=self._get_workspace_files_root(pending.request),
+                )
+                interrupted = await self._stream_agent_events(
+                    stream_id=pending.stream_id,
+                    agent=agent,
+                    input_value=Command(resume={"decisions": decisions}),
+                    config=config,
+                    normalizer=normalizer,
+                    request=pending.request,
+                )
+
+            if not interrupted:
+                self._pending_hitl.pop(pending.stream_id, None)
+                self._normalizers.pop(pending.stream_id, None)
+                await self.queue.rpush(queue_key, {"event": "done", "data": {}})
+        except Exception as exc:
+            self._pending_hitl.pop(pending.stream_id, None)
+            self._normalizers.pop(pending.stream_id, None)
+            await self.queue.rpush(
+                queue_key,
+                {
+                    "event": "error",
+                    "data": {"message": str(exc)},
+                },
+            )
 
     def _json_dumps(self, data: Any) -> str:
         try:
@@ -134,6 +225,110 @@ class ChatService:
         workspace_root = get_workspace_root(request.user_id, request.uuid)
         workspace = ensure_upload_workspace(workspace_root)
         return str(workspace.files_dir)
+
+    async def _stream_agent_events(
+        self,
+        *,
+        stream_id: str,
+        agent: Any,
+        input_value: Any,
+        config: dict[str, Any],
+        normalizer: StreamEventNormalizer,
+        request: ChatRequest,
+    ) -> bool:
+        queue_key = self._queue_key(stream_id)
+        saw_stream_item = False
+        async for event in agent.astream_events(
+            input_value,
+            config=config,
+            version="v2",
+        ):
+            saw_stream_item = True
+            hitl_payload = self._extract_hitl_payload(
+                stream_id=stream_id,
+                event=event,
+            )
+            if hitl_payload:
+                self._pending_hitl[stream_id] = PendingHitl(
+                    stream_id=stream_id,
+                    user_id=request.user_id,
+                    uuid=request.uuid,
+                    thread_id=config["configurable"]["thread_id"],
+                    request=request,
+                    payload=hitl_payload,
+                )
+                await self.queue.rpush(
+                    queue_key,
+                    {
+                        "event": "hitl_request",
+                        "data": hitl_payload,
+                    },
+                )
+                return True
+
+            for ui_event in normalizer.normalize(event):
+                await self.queue.rpush(
+                    queue_key,
+                    {
+                        "event": "agent_ui",
+                        "data": ui_event,
+                    },
+                )
+        if not saw_stream_item:
+            raise RuntimeError("Agent stream ended without output.")
+        return False
+
+    def _extract_hitl_payload(
+        self,
+        *,
+        stream_id: str,
+        event: Any,
+    ) -> dict[str, Any] | None:
+        interrupts = _find_interrupts(jsonable_encoder(event))
+        if not interrupts:
+            return None
+
+        interrupt = interrupts[0]
+        value = interrupt.get("value") if isinstance(interrupt, dict) else None
+        if value is None:
+            return None
+
+        actions = value.get("action_requests", []) if isinstance(value, dict) else []
+        review_configs = value.get("review_configs", []) if isinstance(value, dict) else []
+        normalized_actions = []
+        for index, action in enumerate(actions):
+            config = review_configs[index] if index < len(review_configs) else {}
+            normalized_actions.append(
+                {
+                    "name": action.get("name"),
+                    "args": action.get("args") or {},
+                    "description": action.get("description"),
+                    "allowed_decisions": config.get("allowed_decisions") or [],
+                }
+            )
+        return {
+            "stream_id": stream_id,
+            "actions": normalized_actions,
+        }
+
+
+def _find_interrupts(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        interrupts = value.get("__interrupt__")
+        if isinstance(interrupts, list):
+            return [item for item in interrupts if isinstance(item, dict)]
+        if isinstance(interrupts, dict):
+            return [interrupts]
+        for child in value.values():
+            found = _find_interrupts(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_interrupts(child)
+            if found:
+                return found
+    return []
 
 
 chat_service = ChatService()

@@ -16,6 +16,86 @@ export type FsListResponse = {
   files: FsListItem[];
 };
 
+export type FsSearchResponse = {
+  matches: FsListItem[];
+};
+
+export type PreviewType =
+  | "pdf"
+  | "office_pdf"
+  | "xlsx_grid"
+  | "hwpx"
+  | "markdown"
+  | "text"
+  | "code";
+
+export type XlsxCell = {
+  address: string;
+  row: number;
+  column: number;
+  value: string | number | boolean | null;
+  formula: string | null;
+  style: {
+    bold?: boolean;
+    italic?: boolean;
+    horizontal?: string | null;
+    vertical?: string | null;
+    color?: string;
+    background?: string;
+  };
+};
+
+export type XlsxSheet = {
+  id: string;
+  name: string;
+  visible: boolean;
+  index: number;
+  used_range: string;
+  row_count: number;
+  column_count: number;
+  columns: Array<{ index: number; label: string; width: number }>;
+  rows: Array<{ index: number; height: number }>;
+  merged_ranges: string[];
+  cells: XlsxCell[];
+};
+
+export type XlsxWorkbook = {
+  sheet_count: number;
+  sheets: XlsxSheet[];
+};
+
+export type FsPreviewResponse = {
+  path: string;
+  filename: string;
+  file_type: string;
+  preview_type: PreviewType;
+  source_url: string | null;
+  workbook: XlsxWorkbook | null;
+};
+
+export type HitlActionRequest = {
+  name: string;
+  args: Record<string, unknown>;
+  description?: string | null;
+  allowed_decisions: Array<"approve" | "edit" | "reject">;
+};
+
+export type HitlRequest = {
+  stream_id: string;
+  actions: HitlActionRequest[];
+};
+
+export type HitlDecision =
+  | { type: "approve" }
+  | {
+      type: "edit";
+      edited_action: {
+        name: string;
+        args: Record<string, unknown>;
+      };
+    }
+  | { type: "reject"; message?: string };
+
 export async function createChatStream({
   userId,
   sessionUuid,
@@ -69,6 +149,55 @@ export async function listFiles({
   return (await response.json()) as FsListResponse;
 }
 
+export async function searchFiles({
+  userId,
+  sessionUuid,
+  query,
+  limit = 10,
+}: {
+  userId: string;
+  sessionUuid: string;
+  query: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams({
+    user_id: userId,
+    uuid: sessionUuid,
+    q: query,
+    limit: String(limit),
+  });
+  const response = await fetch(`/api/fs/search?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error(`File search failed: ${response.status}`);
+  }
+
+  return (await response.json()) as FsSearchResponse;
+}
+
+export async function getFilePreview({
+  userId,
+  sessionUuid,
+  path,
+}: {
+  userId: string;
+  sessionUuid: string;
+  path: string;
+}) {
+  const params = new URLSearchParams({
+    user_id: userId,
+    uuid: sessionUuid,
+    path,
+  });
+  const response = await fetch(`/api/fs/preview?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error(`File preview failed: ${response.status}`);
+  }
+
+  return (await response.json()) as FsPreviewResponse;
+}
+
 export async function uploadFiles({
   userId,
   sessionUuid,
@@ -96,4 +225,26 @@ export async function uploadFiles({
   }
 
   return await response.json();
+}
+
+export async function submitHitlDecision({
+  streamId,
+  decisions,
+}: {
+  streamId: string;
+  decisions: HitlDecision[];
+}) {
+  const response = await fetch(`/chat/hitl/${streamId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ decisions }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Approval failed: ${response.status}`);
+  }
+
+  return (await response.json()) as { stream_id: string; status: string };
 }

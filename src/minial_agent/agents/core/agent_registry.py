@@ -3,7 +3,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
-from .agent_builder import AgentBuilder
+from minial_agent.agents.core.agent_builder import AgentBuilder
 
 
 @dataclass

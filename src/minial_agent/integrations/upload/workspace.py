@@ -2,8 +2,8 @@ import os
 import shutil
 from pathlib import Path
 
-from .models import UploadWorkspace
-from .storage import unique_path
+from minial_agent.integrations.upload.models import UploadWorkspace
+from minial_agent.integrations.upload.storage import unique_path
 
 
 REGISTRY_FILENAME = "files.json"

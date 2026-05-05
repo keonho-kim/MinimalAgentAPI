@@ -1,35 +1,37 @@
 from pathlib import Path
 from typing import Any
 
-from .event_activity import ActivityEventBuilder
-from .event_extraction import (
+from minial_agent.api.agent.event_activity import ActivityEventBuilder
+from minial_agent.api.agent.event_extraction import (
     extract_reasoning,
     extract_text,
     extract_tool_calls,
-    jsonable_mapping,
     object_or_empty,
 )
-from .event_filtering import InternalProtocolFilter
 
 
 class StreamEventNormalizer:
     def __init__(self, workspace_root: str | Path | None = None) -> None:
         self._streamed_model_runs: set[str] = set()
         self._activity_builder = ActivityEventBuilder(workspace_root=workspace_root)
-        self._protocol_filter = InternalProtocolFilter()
 
     def normalize(self, raw: Any) -> list[dict[str, Any]]:
-        raw = jsonable_mapping(raw)
         if not isinstance(raw, dict):
             return []
 
         event_name = raw.get("event") or raw.get("name")
 
+        if event_name in {"on_chat_model_start", "on_llm_start"}:
+            return [self._activity_builder.create_model(raw, "running")]
+
         if event_name in {"on_chat_model_stream", "on_llm_stream"}:
             return self._normalize_model_stream(raw)
 
         if event_name in {"on_chat_model_end", "on_llm_end"}:
-            return self._normalize_model_end(raw)
+            return [
+                self._activity_builder.create_model(raw, "completed"),
+                *self._normalize_model_end(raw),
+            ]
 
         if event_name == "on_tool_start":
             return [
@@ -63,31 +65,8 @@ class StreamEventNormalizer:
                 )
             ]
 
-        if event_name == "on_retriever_start":
-            return [
-                self._activity_builder.create(
-                    raw,
-                    "retriever",
-                    "running",
-                    raw.get("data", {}).get("input"),
-                )
-            ]
-
-        if event_name == "on_retriever_end":
-            return [
-                self._activity_builder.create(
-                    raw,
-                    "retriever",
-                    "completed",
-                    raw.get("data", {}).get("input"),
-                    raw.get("data", {}).get("output"),
-                )
-            ]
-
-        if event_name in {"custom", "on_custom_event"}:
-            return [
-                self._activity_builder.create(raw, "custom", "running", raw.get("data"))
-            ]
+        if event_name == "on_custom_event":
+            return [self._activity_builder.create_custom(raw)]
 
         if event_name in {"on_chain_start", "on_chain_end"}:
             activity = self._activity_builder.normalize_visible_chain(raw, event_name)
@@ -101,7 +80,7 @@ class StreamEventNormalizer:
         run_id = raw.get("run_id")
         tool_calls = extract_tool_calls(chunk)
         reasoning = extract_reasoning(chunk)
-        text = self._protocol_filter.filter_text(run_id, extract_text(chunk))
+        text = extract_text(chunk)
         events: list[dict[str, Any]] = []
 
         if reasoning or text:
@@ -113,6 +92,8 @@ class StreamEventNormalizer:
                 events,
                 "think_delta",
                 run_id,
+                raw.get("event"),
+                raw.get("name"),
                 raw.get("parent_ids") or [],
                 reasoning,
             )
@@ -122,6 +103,8 @@ class StreamEventNormalizer:
                 events,
                 "assistant_delta",
                 run_id,
+                raw.get("event"),
+                raw.get("name"),
                 raw.get("parent_ids") or [],
                 text,
             )
@@ -146,7 +129,7 @@ class StreamEventNormalizer:
         data = object_or_empty(raw.get("data"))
         output = data.get("output") or data.get("chunk") or data.get("message")
         reasoning = extract_reasoning(output)
-        text = self._protocol_filter.filter_text(run_id, extract_text(output))
+        text = extract_text(output)
         events: list[dict[str, Any]] = []
 
         if reasoning:
@@ -154,6 +137,8 @@ class StreamEventNormalizer:
                 events,
                 "think_delta",
                 raw.get("run_id"),
+                raw.get("event"),
+                raw.get("name"),
                 raw.get("parent_ids") or [],
                 reasoning,
             )
@@ -163,6 +148,8 @@ class StreamEventNormalizer:
                 events,
                 "assistant_delta",
                 raw.get("run_id"),
+                raw.get("event"),
+                raw.get("name"),
                 raw.get("parent_ids") or [],
                 text,
             )
@@ -174,6 +161,8 @@ def _append_text_event(
     events: list[dict[str, Any]],
     kind: str,
     run_id: Any,
+    source_event: Any,
+    name: Any,
     parent_ids: list[Any],
     text: str,
 ) -> None:
@@ -184,6 +173,9 @@ def _append_text_event(
         {
             "kind": kind,
             "id": run_id,
+            "sourceEvent": source_event,
+            "name": name,
+            "runId": run_id,
             "parentIds": parent_ids,
             "text": text,
         }

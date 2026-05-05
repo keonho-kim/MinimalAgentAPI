@@ -2,8 +2,13 @@ import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import markdownItKatex from "markdown-it-katex";
 
+import { highlightedCodeBlock } from "@/lib/code-highlight";
+
 const markdown = new MarkdownIt({
   breaks: true,
+  highlight(value, language) {
+    return highlightedCodeBlock(value, language);
+  },
   html: true,
   linkify: true,
   typographer: true,
@@ -33,6 +38,6 @@ export function renderSafeMarkdown(source: string) {
 
   return DOMPurify.sanitize(rendered, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ["target"],
+    ADD_ATTR: ["class", "target"],
   });
 }

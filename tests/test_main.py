@@ -22,6 +22,16 @@ def test_root_main_exposes_fastapi_app() -> None:
     assert isinstance(module.app, FastAPI)
 
 
+def test_root_main_redirects_root_to_ui() -> None:
+    module = load_root_main()
+    client = TestClient(module.create_app())
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/ui"
+
+
 def test_root_main_mounts_built_ui_dist(tmp_path) -> None:
     module = load_root_main()
     ui_dist = tmp_path / "dist"

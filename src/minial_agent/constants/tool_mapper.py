@@ -10,6 +10,57 @@ class ToolDisplay:
     pending_message: str
 
 
+PATCH_TOOL_CALLS_DISPLAY = ToolDisplay(
+    label="도구 호출 정리",
+    running_message="AGENT가 도구 호출을 정리합니다.",
+    completed_message="AGENT가 도구 호출 정리를 완료했습니다.",
+    error_message="AGENT가 도구 호출 정리 중 오류가 발생했습니다.",
+    pending_message="AGENT가 도구 호출 정리를 준비합니다.",
+)
+
+FILESYSTEM_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="파일 작업 준비",
+    running_message="AGENT가 파일 작업 환경을 준비합니다.",
+    completed_message="AGENT가 파일 작업 환경 준비를 완료했습니다.",
+    error_message="AGENT가 파일 작업 환경 준비 중 오류가 발생했습니다.",
+    pending_message="AGENT가 파일 작업 환경 준비를 확인합니다.",
+)
+
+SUBAGENT_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="서브에이전트 준비",
+    running_message="AGENT가 서브에이전트 연결을 준비합니다.",
+    completed_message="AGENT가 서브에이전트 준비를 완료했습니다.",
+    error_message="AGENT가 서브에이전트 준비 중 오류가 발생했습니다.",
+    pending_message="AGENT가 서브에이전트 준비를 확인합니다.",
+)
+
+SUMMARIZATION_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="대화 요약 정리",
+    running_message="AGENT가 대화 맥락을 요약합니다.",
+    completed_message="AGENT가 대화 요약 정리를 완료했습니다.",
+    error_message="AGENT가 대화 요약 정리 중 오류가 발생했습니다.",
+    pending_message="AGENT가 대화 요약 정리를 준비합니다.",
+)
+
+HITL_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="승인 확인",
+    running_message="AGENT가 사용자 승인 필요 여부를 확인합니다.",
+    completed_message="AGENT가 승인 확인을 완료했습니다.",
+    error_message="AGENT가 승인 확인 중 오류가 발생했습니다.",
+    pending_message="AGENT가 승인 확인을 준비합니다.",
+)
+
+
+def _standard_display(label: str) -> ToolDisplay:
+    return ToolDisplay(
+        label=label,
+        running_message=f"AGENT가 {label} 작업을 시작합니다.",
+        completed_message=f"AGENT가 {label} 작업을 완료했습니다.",
+        error_message=f"AGENT가 {label} 작업 중 오류가 발생했습니다.",
+        pending_message=f"AGENT가 {label} 작업을 준비합니다.",
+    )
+
+
 TOOL_DISPLAY_MAP: dict[str, ToolDisplay] = {
     "write_file": ToolDisplay(
         label="파일 작성",
@@ -67,6 +118,30 @@ TOOL_DISPLAY_MAP: dict[str, ToolDisplay] = {
         error_message="AGENT가 서브에이전트 위임 중 오류가 발생했습니다.",
         pending_message="AGENT가 서브에이전트 위임을 준비합니다.",
     ),
+    "PatchToolCallsMiddleware": PATCH_TOOL_CALLS_DISPLAY,
+    "PatchToolCallsMiddleware.before_agent": PATCH_TOOL_CALLS_DISPLAY,
+    "PatchToolCallsMiddleware.after_agent": PATCH_TOOL_CALLS_DISPLAY,
+    "FilesystemMiddleware": FILESYSTEM_MIDDLEWARE_DISPLAY,
+    "FilesystemMiddleware.before_agent": FILESYSTEM_MIDDLEWARE_DISPLAY,
+    "FilesystemMiddleware.after_agent": FILESYSTEM_MIDDLEWARE_DISPLAY,
+    "SubAgentMiddleware": SUBAGENT_MIDDLEWARE_DISPLAY,
+    "SubAgentMiddleware.before_agent": SUBAGENT_MIDDLEWARE_DISPLAY,
+    "SubAgentMiddleware.after_agent": SUBAGENT_MIDDLEWARE_DISPLAY,
+    "SummarizationMiddleware": SUMMARIZATION_MIDDLEWARE_DISPLAY,
+    "SummarizationMiddleware.before_agent": SUMMARIZATION_MIDDLEWARE_DISPLAY,
+    "SummarizationMiddleware.after_agent": SUMMARIZATION_MIDDLEWARE_DISPLAY,
+    "HumanInTheLoopMiddleware": HITL_MIDDLEWARE_DISPLAY,
+    "HumanInTheLoopMiddleware.before_agent": HITL_MIDDLEWARE_DISPLAY,
+    "HumanInTheLoopMiddleware.after_agent": HITL_MIDDLEWARE_DISPLAY,
+    "answer_docx_question": _standard_display("DOCX 질문 답변"),
+    "answer_hwpx_question": _standard_display("HWPX 질문 답변"),
+    "answer_pptx_question": _standard_display("PPTX 질문 답변"),
+    "answer_pdf_question": _standard_display("PDF 질문 답변"),
+    "answer_xlsx_question": _standard_display("XLSX 질문 답변"),
+    "edit_docx": _standard_display("DOCX 수정"),
+    "edit_hwpx": _standard_display("HWPX 수정"),
+    "edit_pptx": _standard_display("PPTX 수정"),
+    "edit_xlsx": _standard_display("XLSX 수정"),
 }
 
 

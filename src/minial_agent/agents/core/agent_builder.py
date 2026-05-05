@@ -1,22 +1,25 @@
 import os
+from textwrap import dedent
 from pathlib import Path
 
-import httpx
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
-    LLMToolSelectorMiddleware,
+    HumanInTheLoopMiddleware,
     SummarizationMiddleware,
 )
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
-from pydantic import SecretStr
 
+from minial_agent.common.llm import llm_client
+from minial_agent.agents.domain.office_file_agent import build_office_file_agent
 from minial_agent.integrations.upload import ensure_upload_workspace
 
-from .system_prompt import CORE_AGENT_SYSTEM_PROMPT, LLM_TOOL_SELECTOR_SYSTEM_PROMPT
+from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
 
 
 class AgentBuilder:
@@ -29,35 +32,68 @@ class AgentBuilder:
         _store = InMemoryStore()
         _checkpointer = InMemorySaver()
         _root_dir = self._get_workspace_root(user_id=user_id, uuid=uuid)
+        backend = FilesystemBackend(
+            root_dir=_root_dir,
+            virtual_mode=True,
+            max_file_size_mb=1024,
+        )
+
+        model = llm_client()
+        
+        office_agent = build_office_file_agent(
+            model=model,
+            backend=backend,
+            store=_store,
+            checkpointer=_checkpointer,
+        )
+        
+        office_subagent = CompiledSubAgent(
+            name="office_file_agent",
+            description=dedent("""
+            Routes office file requests to HWPX, DOCX, PPTX, XLSX, and PDF worker agents.
+            """.strip()),
+            runnable=office_agent,
+        )
 
         return create_agent(
-            model=self._get_llm(),
+            model=model,
             system_prompt=CORE_AGENT_SYSTEM_PROMPT,
             middleware=[
                 FilesystemMiddleware(
-                    backend=FilesystemBackend(
-                        root_dir=_root_dir,
-                        virtual_mode=True,
-                        max_file_size_mb=1024,
-                    )
+                    backend=backend,
+                ),
+                SubAgentMiddleware(
+                    backend=backend,
+                    subagents=[office_subagent],
                 ),
                 SummarizationMiddleware(
-                    model=self._get_llm(),
+                    model=llm_client(),
                     trigger=(
-                        "tokens",
-                        int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096)),
+                        "tokens", int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096)),
                     ),
                     keep=(
-                        "messages",
-                        int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20")),
+                        "messages", int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20")),
                     ),
                 ),
-                LLMToolSelectorMiddleware(
-                    model=self._get_llm(disable_streaming=True),
-                    max_tools=5,
-                    system_prompt=LLM_TOOL_SELECTOR_SYSTEM_PROMPT,
-                    # always_include=["search"],
+                HumanInTheLoopMiddleware(
+                    interrupt_on={
+                        "write_file": {
+                            "allowed_decisions": ["approve", "edit", "reject"],
+                            "description": (
+                                "A file write requires approval before it changes "
+                                "the workspace."
+                            ),
+                        },
+                        "edit_file": {
+                            "allowed_decisions": ["approve", "edit", "reject"],
+                            "description": (
+                                "A file edit requires approval before it changes "
+                                "the workspace."
+                            ),
+                        },
+                    },
                 ),
+                PatchToolCallsMiddleware(),
             ],
             store=_store,
             checkpointer=_checkpointer,
@@ -75,37 +111,3 @@ class AgentBuilder:
     def _validate_path_part(self, value: str) -> None:
         if not value or value in {".", ".."} or Path(value).name != value:
             raise ValueError(f"Invalid workspace path value: {value}")
-
-    def _get_llm(self, *, disable_streaming: bool | str = False):
-        max_tokens = os.getenv("LLM_MAX_TOKENS")
-        http_verify = self._get_http_verify()
-        http_client_config = (
-            {}
-            if http_verify is True
-            else {
-                "http_client": httpx.Client(verify=http_verify),
-                "http_async_client": httpx.AsyncClient(verify=http_verify),
-            }
-        )
-
-        return ChatOpenAI(
-            model=os.getenv("LLM_MODEL_NAME", ""),
-            base_url=os.getenv("LLM_BASE_URL", ""),
-            api_key=SecretStr(os.getenv("LLM_API_KEY", "")),
-            max_tokens=int(max_tokens) if max_tokens else None,
-            stream_usage=True,
-            disable_streaming=disable_streaming,
-            extra_body={"enable_thinking": True},
-            **http_client_config,
-        )
-
-    def _get_http_verify(self) -> bool | str:
-        tls_verify = os.getenv("LLM_TLS_VERIFY", "true").lower()
-        if tls_verify in {"0", "false", "no", "off"}:
-            return False
-
-        ca_bundle_path = os.getenv("LLM_CA_BUNDLE_PATH")
-        if ca_bundle_path:
-            return ca_bundle_path
-
-        return True

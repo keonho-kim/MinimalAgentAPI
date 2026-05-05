@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "highlight.js/styles/github.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -29,24 +30,24 @@
 
 :root {
   --radius: 0.5rem;
-  --background: #fbfbfa;
-  --foreground: #202124;
+  --background: #f8f7f4;
+  --foreground: #1f2320;
   --card: #ffffff;
-  --card-foreground: #202124;
+  --card-foreground: #1f2320;
   --popover: #ffffff;
-  --popover-foreground: #202124;
-  --primary: #111111;
+  --popover-foreground: #1f2320;
+  --primary: #151515;
   --primary-foreground: #ffffff;
-  --secondary: #f1f1ef;
-  --secondary-foreground: #202124;
-  --muted: #f7f6f3;
-  --muted-foreground: #6f6d68;
+  --secondary: #f2f1ed;
+  --secondary-foreground: #1f2320;
+  --muted: #f2f1ed;
+  --muted-foreground: #5f625c;
   --accent: #edf3ec;
-  --accent-foreground: #346538;
+  --accent-foreground: #315f36;
   --destructive: #9f2f2d;
-  --border: #e8e6e1;
-  --input: #e8e6e1;
-  --ring: #111111;
+  --border: #e4e1da;
+  --input: #d9d5cc;
+  --ring: #151515;
   --font-sans: "SF Pro Display", "Geist Sans", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", "Geist Mono", "JetBrains Mono", monospace;
 }
@@ -75,7 +76,7 @@ textarea {
 .message-renderer {
   overflow-wrap: anywhere;
   font-size: 0.875rem;
-  line-height: 1.65;
+  line-height: 1.68;
 }
 
 .message-renderer > :first-child {
@@ -106,8 +107,8 @@ textarea {
 }
 
 .message-renderer blockquote {
-  border-inline-start: 3px solid color-mix(in srgb, currentColor 22%, transparent);
-  color: color-mix(in srgb, currentColor 74%, transparent);
+  border-inline-start: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+  color: color-mix(in srgb, currentColor 76%, transparent);
   padding-inline-start: 0.85rem;
 }
 
@@ -119,8 +120,9 @@ textarea {
 }
 
 .message-renderer code {
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
   border-radius: 0.25rem;
-  background: color-mix(in srgb, currentColor 9%, transparent);
+  background: color-mix(in srgb, currentColor 7%, transparent);
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.1rem 0.28rem;
@@ -128,8 +130,9 @@ textarea {
 
 .message-renderer pre {
   overflow-x: auto;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: #f6f8fa;
   padding: 0.85rem;
 }
 
@@ -137,6 +140,10 @@ textarea {
   display: block;
   background: transparent;
   padding: 0;
+}
+
+.hljs {
+  background: transparent;
 }
 
 .message-renderer table {
@@ -154,7 +161,7 @@ textarea {
 }
 
 .message-renderer th {
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
   font-weight: 600;
 }
 
@@ -166,6 +173,7 @@ textarea {
 
 .message-renderer img {
   max-width: 100%;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
   border-radius: var(--radius-md);
 }
 

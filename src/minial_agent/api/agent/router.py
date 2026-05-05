@@ -1,8 +1,13 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from .schema import ChatRequest, ChatResponse
-from .service import chat_service
+from minial_agent.api.agent.schema import (
+    ChatRequest,
+    ChatResponse,
+    HitlResumeRequest,
+    HitlResumeResponse,
+)
+from minial_agent.api.agent.service import chat_service
 
 
 router = APIRouter()
@@ -20,3 +25,11 @@ async def stream_chat(stream_id: str) -> StreamingResponse:
         chat_service.stream_events(stream_id),
         media_type="text/event-stream",
     )
+
+
+@router.post("/chat/hitl/{stream_id}", response_model=HitlResumeResponse)
+async def resume_hitl(
+    stream_id: str,
+    request: HitlResumeRequest,
+) -> HitlResumeResponse:
+    return await chat_service.resume_hitl(stream_id=stream_id, request=request)

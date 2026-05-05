@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from langchain_core.messages import BaseMessage
 
 REASONING_BLOCK_TYPES = {
     "reasoning",
@@ -25,6 +26,9 @@ REASONING_FIELDS = (
 def extract_text(value: Any) -> str:
     if isinstance(value, str):
         return value
+
+    if isinstance(value, BaseMessage):
+        return value.text
 
     if isinstance(value, list):
         return "".join(extract_text(item) for item in value)
@@ -56,6 +60,13 @@ def extract_text(value: Any) -> str:
 def extract_reasoning(value: Any) -> str:
     if isinstance(value, str):
         return ""
+
+    if isinstance(value, BaseMessage):
+        return "".join(
+            _extract_reasoning_block_text(block)
+            for block in _message_content_blocks(value)
+            if isinstance(block, dict) and _is_reasoning_block(block)
+        )
 
     if isinstance(value, list):
         return "".join(extract_reasoning(item) for item in value)
@@ -89,24 +100,18 @@ def extract_reasoning(value: Any) -> str:
 
 
 def extract_tool_calls(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, BaseMessage):
+        return _deduplicate_tool_calls(
+            _extract_message_tool_calls(value)
+            + _extract_content_block_tool_calls(_message_content_blocks(value))
+        )
+
     if not isinstance(value, dict):
         return []
 
     calls: list[dict[str, Any]] = []
     content = value.get("content") if isinstance(value.get("content"), list) else []
-
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") in {"tool_call", "tool_call_chunk"}:
-            calls.append(
-                {
-                    "id": block.get("id"),
-                    "name": block.get("name"),
-                    "args": parse_maybe_json(block.get("args")),
-                    "index": block.get("index"),
-                }
-            )
+    calls.extend(_extract_content_block_tool_calls(content))
 
     for call in value.get("tool_calls") or []:
         if isinstance(call, dict):
@@ -189,6 +194,60 @@ def _extract_reasoning_block_text(value: dict[str, Any]) -> str:
 def _is_reasoning_block(value: dict[str, Any]) -> bool:
     block_type = value.get("type")
     return isinstance(block_type, str) and block_type in REASONING_BLOCK_TYPES
+
+
+def _message_content_blocks(value: BaseMessage) -> list[Any]:
+    blocks = getattr(value, "content_blocks", None)
+    if isinstance(blocks, list):
+        return blocks
+
+    content = value.content
+    return content if isinstance(content, list) else []
+
+
+def _extract_message_tool_calls(value: BaseMessage) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    for call in getattr(value, "tool_calls", None) or []:
+        if isinstance(call, dict):
+            calls.append(
+                {
+                    "id": call.get("id"),
+                    "name": call.get("name"),
+                    "args": call.get("args"),
+                }
+            )
+
+    for call in getattr(value, "tool_call_chunks", None) or []:
+        if isinstance(call, dict):
+            calls.append(
+                {
+                    "id": call.get("id"),
+                    "name": call.get("name"),
+                    "args": parse_maybe_json(call.get("args")),
+                    "index": call.get("index"),
+                }
+            )
+
+    return calls
+
+
+def _extract_content_block_tool_calls(blocks: list[Any]) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") not in {"tool_call", "tool_call_chunk"}:
+            continue
+        calls.append(
+            {
+                "id": block.get("id"),
+                "name": block.get("name"),
+                "args": parse_maybe_json(block.get("args")),
+                "index": block.get("index"),
+            }
+        )
+    return calls
 
 
 def _deduplicate_tool_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
