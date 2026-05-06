@@ -1,10 +1,8 @@
 import os
-from textwrap import dedent
 from pathlib import Path
 
 from deepagents.backends import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
@@ -17,11 +15,27 @@ from langchain.agents.middleware import (
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 
+from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
+from minial_agent.agents.domain.office_file_agent import build_office_file_subagent
 from minial_agent.common.llm import llm_client
-from minial_agent.agents.domain.office_file_agent import build_office_file_agent
 from minial_agent.integrations.upload import ensure_upload_workspace
 
-from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
+WORKSPACE_SKILL_SOURCE = ("/.agents/skills", "Workspace")
+
+FILESYSTEM_HITL_POLICY = {
+    "write_file": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": (
+            "A file write requires approval before it changes the workspace."
+        ),
+    },
+    "edit_file": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": (
+            "A file edit requires approval before it changes the workspace."
+        ),
+    },
+}
 
 
 class AgentBuilder:
@@ -33,7 +47,12 @@ class AgentBuilder:
     def get_agent(self, user_id: str, uuid: str):
         _store = InMemoryStore()
         _checkpointer = InMemorySaver()
+        model = llm_client()
+
+        # set workspace
         workspace = self._get_workspace(user_id=user_id, uuid=uuid)
+
+        # build backend
         files_backend = FilesystemBackend(
             root_dir=workspace.files_dir,
             virtual_mode=True,
@@ -49,67 +68,52 @@ class AgentBuilder:
             routes={"/.agents/": skills_backend},
         )
 
-        model = llm_client()
+        #####################################
+        ############# SUBAGENTS #############
+        #####################################
 
-        office_agent = build_office_file_agent(
+        office_subagent = build_office_file_subagent(
             model=model,
             backend=files_backend,
             store=_store,
             checkpointer=_checkpointer,
         )
 
-        office_subagent = CompiledSubAgent(
-            name="office_file_agent",
-            description=dedent("""
-            Routes office file requests to HWPX, DOCX, PPTX, XLSX, and PDF worker agents.
-            """.strip()),
-            runnable=office_agent,
-        )
+        #####################################
+        ############# MIDDLEWARE ############
+        #####################################
+
+        middlewares = [
+            FilesystemMiddleware(
+                backend=core_backend,
+            ),
+            SkillsMiddleware(
+                backend=core_backend,
+                sources=[WORKSPACE_SKILL_SOURCE],
+            ),
+            SubAgentMiddleware(
+                backend=files_backend,
+                subagents=[office_subagent],
+            ),
+            SummarizationMiddleware(
+                model=llm_client(),
+                trigger=(
+                    "tokens",
+                    int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096)),
+                ),
+                keep=(
+                    "messages",
+                    int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20")),
+                ),
+            ),
+            HumanInTheLoopMiddleware(interrupt_on=FILESYSTEM_HITL_POLICY),
+            PatchToolCallsMiddleware(),
+        ]
 
         return create_agent(
             model=model,
             system_prompt=CORE_AGENT_SYSTEM_PROMPT,
-            middleware=[
-                SkillsMiddleware(
-                    backend=core_backend,
-                    sources=[("/.agents/skills", "Workspace")],
-                ),
-                FilesystemMiddleware(
-                    backend=core_backend,
-                ),
-                SubAgentMiddleware(
-                    backend=files_backend,
-                    subagents=[office_subagent],
-                ),
-                SummarizationMiddleware(
-                    model=llm_client(),
-                    trigger=(
-                        "tokens", int(os.getenv("LLM_SUMMARY_TRIGGER_TOKEN_SIZE", 4096)),
-                    ),
-                    keep=(
-                        "messages", int(os.getenv("LLM_SUMMARY_KEEP_MESSAGES", "20")),
-                    ),
-                ),
-                HumanInTheLoopMiddleware(
-                    interrupt_on={
-                        "write_file": {
-                            "allowed_decisions": ["approve", "edit", "reject"],
-                            "description": (
-                                "A file write requires approval before it changes "
-                                "the workspace."
-                            ),
-                        },
-                        "edit_file": {
-                            "allowed_decisions": ["approve", "edit", "reject"],
-                            "description": (
-                                "A file edit requires approval before it changes "
-                                "the workspace."
-                            ),
-                        },
-                    },
-                ),
-                PatchToolCallsMiddleware(),
-            ],
+            middleware=middlewares,
             store=_store,
             checkpointer=_checkpointer,
         )

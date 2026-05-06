@@ -73,6 +73,43 @@ textarea {
   font: inherit;
 }
 
+.session-title-viewport {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: start;
+}
+
+.session-title-track {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(0);
+  transition: transform var(--session-title-duration, 4s) linear;
+  white-space: nowrap;
+}
+
+.session-title-button:hover .session-title-track[data-overflow="true"],
+.session-title-button:focus-visible .session-title-track[data-overflow="true"] {
+  max-width: none;
+  transform: translateX(var(--session-title-shift, 0));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-title-track {
+    transition: none;
+  }
+
+  .session-title-button:hover .session-title-track[data-overflow="true"],
+  .session-title-button:focus-visible .session-title-track[data-overflow="true"] {
+    max-width: 100%;
+    transform: none;
+  }
+}
+
 .message-renderer {
   overflow-wrap: anywhere;
   font-size: 0.875rem;
@@ -117,6 +154,54 @@ textarea {
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.file-mention-pill,
+.skill-mention-pill {
+  display: inline-flex;
+  max-width: min(18rem, 100%);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #2f7d45 28%, transparent);
+  border-radius: 999px;
+  background: #dff2e3;
+  color: #225831;
+  font-weight: 650;
+  line-height: 1.45;
+  padding: 0.05rem 0.48rem;
+  text-decoration: none;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.file-mention-pill {
+  border: 1px solid color-mix(in srgb, #2f7d45 28%, transparent);
+  background: #dff2e3;
+  color: #225831;
+}
+
+.skill-mention-pill {
+  border: 1px solid color-mix(in srgb, #b86a7b 28%, transparent);
+  background: #fdecef;
+  color: #814455;
+}
+
+.file-mention-pill::before,
+.skill-mention-pill::before {
+  content: "";
+  width: 0.38rem;
+  height: 0.38rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  margin-inline-end: 0.34rem;
+}
+
+.file-mention-pill::before {
+  background: #2f7d45;
+}
+
+.skill-mention-pill::before {
+  background: #b86a7b;
 }
 
 .message-renderer code {

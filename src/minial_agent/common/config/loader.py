@@ -1,3 +1,4 @@
+import json
 import os
 import tomllib
 from pathlib import Path
@@ -14,12 +15,16 @@ def set_config(file_name: str = "env.toml") -> None:
         os.environ["AGENT_RUNTIME_ROOT_DIR"] = str(_fs_config.get("workspace"))
 
         # LOAD LLM CONFIG
-        _llm_config = data.get("llm")
+        _llm_config = data.get("llm", {})
 
-        os.environ["LLM_BASE_URL"] = str(_llm_config.get("base_url"))
-        os.environ["LLM_MODEL_NAME"] = str(_llm_config.get("model_name"))
-        os.environ["LLM_MAX_TOKENS"] = str(_llm_config.get("max_tokens"))
-        os.environ["LLM_API_KEY"] = str(_llm_config.get("api_key"))
+        os.environ["LLM_PROVIDER"] = str(
+            _llm_config.get("provider", "openai-compatible")
+        )
+        os.environ["LLM_BASE_URL"] = str(_llm_config.get("base_url", ""))
+        os.environ["LLM_MODEL_NAME"] = str(_llm_config.get("model_name", ""))
+        os.environ["LLM_MAX_TOKENS"] = str(_llm_config.get("max_tokens", ""))
+        os.environ["LLM_API_KEY"] = str(_llm_config.get("api_key", ""))
+        os.environ["LLM_KWARGS"] = json.dumps(_llm_config.get("kwargs", {}))
         os.environ["LLM_TLS_VERIFY"] = str(
             _llm_config.get("tls_verify", True)
         ).lower()

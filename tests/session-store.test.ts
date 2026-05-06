@@ -79,9 +79,20 @@ test("touch keeps generated titles instead of replacing them with message text",
   seedSessions(userId, [session("one", "생성된 제목")]);
   useSessionStore.getState().setUserId(userId);
 
-  useSessionStore.getState().touchSession("one", "아주 긴 사용자 메시지");
+  useSessionStore.getState().touchSession("one");
 
   expect(useSessionStore.getState().sessions[0].title).toBe("생성된 제목");
+});
+
+test("touch keeps default titles until generated title arrives", async () => {
+  const { useSessionStore } = await loadStore();
+  const userId = "session-touch-default-user";
+  seedSessions(userId, [session("one", "New session")]);
+  useSessionStore.getState().setUserId(userId);
+
+  useSessionStore.getState().touchSession("one");
+
+  expect(useSessionStore.getState().sessions[0].title).toBe("New session");
 });
 
 async function loadStore() {

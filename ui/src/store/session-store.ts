@@ -18,12 +18,12 @@ type SessionState = {
   createSession(): SessionSummary;
   removeSession(uuid: string): string;
   renameSession(uuid: string, title: string): void;
-  touchSession(uuid: string, title: string): void;
+  touchSession(uuid: string): void;
   setFileDrawerOpen(open: boolean): void;
 };
 
 const DEFAULT_USER_ID = "local-user";
-const DEFAULT_SESSION_TITLE = "New session";
+export const DEFAULT_SESSION_TITLE = "New session";
 const MAX_SESSION_TITLE_LENGTH = 48;
 
 export const useSessionStore = create<SessionState>((set) => {
@@ -97,17 +97,13 @@ export const useSessionStore = create<SessionState>((set) => {
         return { sessions };
       });
     },
-    touchSession(uuid, title) {
+    touchSession(uuid) {
       set((current) => {
         const sessions = current.sessions
           .map((session) =>
             session.uuid === uuid
               ? {
                   ...session,
-                  title:
-                    session.title === DEFAULT_SESSION_TITLE
-                      ? cleanSessionTitle(title) || DEFAULT_SESSION_TITLE
-                      : session.title,
                   updatedAt: Date.now(),
                 }
               : session,

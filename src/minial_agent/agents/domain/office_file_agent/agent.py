@@ -1,3 +1,6 @@
+from textwrap import dedent
+
+from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
@@ -7,15 +10,14 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 
-from deepagents.backends.protocol import BackendProtocol
-
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.agent import build_docx_subagent
-from minial_agent.agents.domain.office_file_agent.subagents.agent_hwpx.agent import build_hwpx_subagent
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.agent import build_pdf_subagent
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pptx.agent import build_pptx_subagent
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.agent import build_xlsx_subagent
+from minial_agent.agents.domain.office_file_agent.subagents import (
+    build_docx_subagent,
+    build_hwpx_subagent,
+    build_pdf_subagent,
+    build_pptx_subagent,
+    build_xlsx_subagent,
+)
 from minial_agent.agents.domain.office_file_agent.system_prompt import SYSTEM_PROMPT
-
 
 FILESYSTEM_HITL_POLICY = {
     "write_file": {
@@ -41,14 +43,15 @@ WORKER_EDIT_TOOLS = {
 }
 
 
-def build_office_file_agent(
+def build_office_file_subagent(
     *,
     model: BaseChatModel,
     backend: BackendProtocol,
     store: BaseStore | None = None,
     checkpointer: BaseCheckpointSaver | bool | None = None,
 ):
-    return create_agent(
+
+    agent = create_agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
         middleware=[
@@ -71,6 +74,16 @@ def build_office_file_agent(
         checkpointer=checkpointer,
     )
 
+    return CompiledSubAgent(
+        name="office_file_agent",
+        description=dedent(
+            """
+        Routes office file requests to HWPX, DOCX, PPTX, XLSX, and PDF worker agents.
+        """.strip()
+        ),
+        runnable=agent,
+    )
+
 
 def _build_worker_subagents(
     *,
@@ -79,6 +92,7 @@ def _build_worker_subagents(
     store: BaseStore | None,
     checkpointer: BaseCheckpointSaver | bool | None,
 ) -> list[CompiledSubAgent]:
+
     return [
         _compile_worker_subagent(
             spec=spec,
@@ -105,14 +119,15 @@ def _compile_worker_subagent(
     store: BaseStore | None,
     checkpointer: BaseCheckpointSaver | bool | None,
 ) -> CompiledSubAgent:
+
     interrupt_on = dict(FILESYSTEM_HITL_POLICY)
     edit_tool = WORKER_EDIT_TOOLS.get(spec["name"])
+
     if edit_tool:
         interrupt_on[edit_tool] = {
             "allowed_decisions": ["approve", "edit", "reject"],
             "description": (
-                "An office file edit requires approval before it changes "
-                "the workspace."
+                "An office file edit requires approval before it changes the workspace."
             ),
         }
 

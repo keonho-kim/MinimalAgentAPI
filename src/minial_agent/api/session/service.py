@@ -7,7 +7,7 @@ MAX_TITLE_CHARS = 10
 DEFAULT_TITLE = "New session"
 TITLE_SYSTEM_PROMPT = dedent(
     """
-    Create a concise Korean chat title from the user's first message.
+    Create a concise Korean chat title from the provided chat exchange.
     Return only the title in KOREAN. Do not include quotes, punctuation, or explanation.
     Keep it within 10 characters.
     """.strip()

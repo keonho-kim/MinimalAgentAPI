@@ -23,6 +23,7 @@ env/
 !.env.example
 env.local.toml
 env.*.local.toml
+env.toml
 
 # Editor and OS files
 .DS_Store

@@ -35,8 +35,11 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(agent_builder, "create_agent", fake_create_agent)
     monkeypatch.setattr(
         agent_builder,
-        "build_office_file_agent",
-        lambda **kwargs: {"office_agent": kwargs},
+        "build_office_file_subagent",
+        lambda **kwargs: {
+            "name": "office_file_agent",
+            "runnable": {"office_agent": kwargs},
+        },
     )
     monkeypatch.setattr(
         agent_builder,
@@ -81,12 +84,12 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
     assert (workspace / ".converted").is_dir()
     assert (workspace / ".agents" / "skills").is_dir()
     assert captured["model"] == "fake-model:False"
-    skills_middleware = captured["middleware"][0]
+    core_backend = captured["middleware"][0]["filesystem"]["backend"]
+    assert isinstance(core_backend, CompositeBackend)
+    skills_middleware = captured["middleware"][1]
     assert isinstance(skills_middleware, SkillsMiddleware)
     assert skills_middleware.sources == ["/.agents/skills"]
     assert skills_middleware.source_labels == ["Workspace"]
-    core_backend = captured["middleware"][1]["filesystem"]["backend"]
-    assert isinstance(core_backend, CompositeBackend)
     files_backend = captured["middleware"][2]["subagents"]["backend"]
     assert core_backend.default is files_backend
     assert core_backend.routes["/.agents/"].cwd == workspace / ".agents"
@@ -173,7 +176,7 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
         max_file_size_mb=1024,
     )
 
-    office_agent.build_office_file_agent(
+    office_subagent = office_agent.build_office_file_subagent(
         model=model,
         backend=backend,
         store=None,
@@ -182,6 +185,8 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
 
     worker_calls = captured_calls[:5]
     captured = captured_calls[5]
+    assert office_subagent["name"] == "office_file_agent"
+    assert office_subagent["runnable"]["agent"] is captured
     assert captured["model"] is model
     assert captured["checkpointer"] == "shared-checkpointer"
     assert captured["middleware"][0]["filesystem"]["backend"] is backend
@@ -205,7 +210,10 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
     assert all(call["model"] is model for call in worker_calls)
     assert all(call["checkpointer"] == "shared-checkpointer" for call in worker_calls)
     assert all(call["store"] is None for call in worker_calls)
-    assert all(call["middleware"][0]["filesystem"]["backend"] is backend for call in worker_calls)
+    assert all(
+        call["middleware"][0]["filesystem"]["backend"] is backend
+        for call in worker_calls
+    )
     assert set(captured["middleware"][2]["hitl"]["interrupt_on"]) == {
         "write_file",
         "edit_file",

@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, memo, Suspense } from "react";
 
-import type { ChatMessage } from "@/lib/api";
 import type { AgentUiEvent } from "@/lib/stream";
 import { activityDetailLines } from "@/lib/activity-summary";
+import type { UiMessage } from "@/lib/chat-messages";
+import { serializeFileMentions } from "@/lib/file-mentions";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -12,13 +13,11 @@ const MessageRenderer = lazy(() =>
   })),
 );
 
-export type UiMessage = ChatMessage & {
-  id: string;
-  kind?: "normal" | "reasoning" | "activity" | "error";
-  activity?: Extract<AgentUiEvent, { kind: "activity" }>;
-};
-
-export function MessageCard({ item }: { item: UiMessage }) {
+export const MessageCard = memo(function MessageCard({ item }: { item: UiMessage }) {
+  const renderContent =
+    item.role === "user" && item.fileMentions?.length
+      ? serializeFileMentions(item.content, item.fileMentions)
+      : item.content;
   const variant =
     item.kind === "error"
       ? "border-destructive/30 bg-destructive/5 text-destructive"
@@ -39,17 +38,17 @@ export function MessageCard({ item }: { item: UiMessage }) {
           <Suspense
             fallback={
               <div className="message-renderer whitespace-pre-wrap">
-                {item.content}
+                {renderContent}
               </div>
             }
           >
-            <MessageRenderer content={item.content} role={item.role} />
+            <MessageRenderer content={renderContent} role={item.role} />
           </Suspense>
         )}
       </CardContent>
     </Card>
   );
-}
+});
 
 function ActivityMessage({
   activity,

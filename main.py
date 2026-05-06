@@ -8,6 +8,7 @@ from minial_agent.api.agent.router import router as agent_router
 from minial_agent.api.fs.router import router as fs_router
 from minial_agent.api.processor.router import router as processor_router
 from minial_agent.api.session.router import router as session_router
+from minial_agent.api.skills.router import router as skills_router
 from minial_agent.common.config.loader import set_config
 
 set_config("env.toml")
@@ -21,6 +22,7 @@ def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
     app.include_router(fs_router)
     app.include_router(processor_router)
     app.include_router(session_router)
+    app.include_router(skills_router)
 
     @app.get("/", include_in_schema=False)
     async def redirect_to_ui():
