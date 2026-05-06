@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   findActiveFileMention,
   replaceFileMention,
-} from "../src/ui/src/lib/file-mentions";
+} from "../ui/src/lib/file-mentions";
 
 test("finds the active file mention token", () => {
   expect(findActiveFileMention("read @rep", 9)).toEqual({

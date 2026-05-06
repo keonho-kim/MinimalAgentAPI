@@ -1,5 +1,7 @@
 import pytest
+from deepagents.backends import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.middleware.skills import SkillsMiddleware
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from minial_agent.agents.core import agent_builder
@@ -77,30 +79,38 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
     assert (workspace / ".outputs").is_dir()
     assert (workspace / ".registry" / "files.json").is_file()
     assert (workspace / ".converted").is_dir()
+    assert (workspace / ".agents" / "skills").is_dir()
     assert captured["model"] == "fake-model:False"
-    backend = captured["middleware"][0]["filesystem"]["backend"]
-    assert captured["middleware"][1]["subagents"]["backend"] is backend
-    assert captured["middleware"][1]["subagents"]["subagents"][0]["name"] == (
+    skills_middleware = captured["middleware"][0]
+    assert isinstance(skills_middleware, SkillsMiddleware)
+    assert skills_middleware.sources == ["/.agents/skills"]
+    assert skills_middleware.source_labels == ["Workspace"]
+    core_backend = captured["middleware"][1]["filesystem"]["backend"]
+    assert isinstance(core_backend, CompositeBackend)
+    files_backend = captured["middleware"][2]["subagents"]["backend"]
+    assert core_backend.default is files_backend
+    assert core_backend.routes["/.agents/"].cwd == workspace / ".agents"
+    assert captured["middleware"][2]["subagents"]["subagents"][0]["name"] == (
         "office_file_agent"
     )
-    assert captured["middleware"][1]["subagents"]["subagents"][0]["runnable"][
+    assert captured["middleware"][2]["subagents"]["subagents"][0]["runnable"][
         "office_agent"
-    ]["backend"] is backend
-    assert captured["middleware"][1]["subagents"]["subagents"][0]["runnable"][
+    ]["backend"] is files_backend
+    assert captured["middleware"][2]["subagents"]["subagents"][0]["runnable"][
         "office_agent"
     ]["checkpointer"] is captured["checkpointer"]
-    assert captured["middleware"][2]["summarization"]["model"] == "fake-model:False"
-    assert set(captured["middleware"][3]["hitl"]["interrupt_on"]) == {
+    assert captured["middleware"][3]["summarization"]["model"] == "fake-model:False"
+    assert set(captured["middleware"][4]["hitl"]["interrupt_on"]) == {
         "write_file",
         "edit_file",
     }
-    assert captured["middleware"][3]["hitl"]["interrupt_on"]["write_file"][
+    assert captured["middleware"][4]["hitl"]["interrupt_on"]["write_file"][
         "allowed_decisions"
     ] == ["approve", "edit", "reject"]
-    assert captured["middleware"][4]["patch_tool_calls"] is True
+    assert captured["middleware"][5]["patch_tool_calls"] is True
     assert captured["checkpointer"] is not None
     assert captured["store"] is not None
-    assert backend.cwd == workspace / "files"
+    assert files_backend.cwd == workspace / "files"
     assert llm_calls == [False, False]
 
 

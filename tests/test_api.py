@@ -241,6 +241,51 @@ def test_chat_service_streams_agent_events() -> None:
     asyncio.run(run())
 
 
+def test_chat_service_does_not_synthesize_workspace_skill_event(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    skill_dir = tmp_path / "user" / ".agents" / "skills" / "writing-guide"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: writing-guide
+description: Use this writing guide for writing requests.
+---
+
+# Writing Guide
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+
+    async def run() -> None:
+        agent = FakeAgent()
+        service = ChatService(
+            registry=FakeRegistry(agent),
+            queue=InMemoryQueue(),
+        )
+        request = ChatRequest(
+            user_id="user",
+            uuid="session",
+            message="hello",
+            chat_history=[],
+        )
+
+        await service._run_agent(stream_id="stream-id", request=request)
+        stream = service.stream_events("stream-id")
+
+        queued = await anext(stream)
+        answer_event = await anext(stream)
+        done_event = await anext(stream)
+
+        assert "event: queued" in queued
+        assert '"kind": "assistant_delta"' in answer_event
+        assert "event: done" in done_event
+
+    asyncio.run(run())
+
+
 def test_chat_service_wraps_only_latest_user_message() -> None:
     async def run() -> None:
         agent = FakeAgent()
@@ -559,6 +604,75 @@ def test_stream_event_normalizer_uses_server_tool_display_messages() -> None:
     assert events[0]["message"] == "AGENT가 파일 작성을 시작합니다."
 
 
+def test_stream_event_normalizer_preserves_tool_input_for_end_events() -> None:
+    normalizer = StreamEventNormalizer()
+
+    normalizer.normalize(
+        {
+            "event": "on_tool_start",
+            "name": "ls",
+            "run_id": "tool-run",
+            "data": {"input": {"path": "/.agents"}},
+        }
+    )
+    events = normalizer.normalize(
+        {
+            "event": "on_tool_end",
+            "name": "ls",
+            "run_id": "tool-run",
+            "data": {"output": '["/.agents/skills/"]'},
+        }
+    )
+
+    assert events[0]["summary"]["path"] == "/.agents"
+    assert events[0]["summary"]["result"] == '["/.agents/skills/"]'
+
+
+def test_stream_event_normalizer_marks_skill_file_reads() -> None:
+    normalizer = StreamEventNormalizer()
+
+    start_events = normalizer.normalize(
+        {
+            "event": "on_tool_start",
+            "name": "read_file",
+            "run_id": "skill-read-run",
+            "data": {
+                "input": {"file_path": "/.agents/skills/writing-guide/SKILL.md"}
+            },
+        }
+    )
+    end_events = normalizer.normalize(
+        {
+            "event": "on_tool_end",
+            "name": "read_file",
+            "run_id": "skill-read-run",
+            "data": {"output": "skill contents"},
+        }
+    )
+
+    assert start_events[0]["label"] == "스킬 읽기"
+    assert start_events[0]["message"] == "AGENT가 writing-guide 스킬을 읽습니다."
+    assert start_events[0]["summary"]["skillName"] == "writing-guide"
+    assert end_events[0]["label"] == "스킬 읽기"
+    assert end_events[0]["message"] == "AGENT가 writing-guide 스킬을 읽었습니다."
+    assert end_events[0]["summary"]["skillName"] == "writing-guide"
+
+
+def test_stream_event_normalizer_keeps_regular_file_reads() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_tool_start",
+            "name": "read_file",
+            "run_id": "read-run",
+            "data": {"input": {"file_path": "/report.md"}},
+        }
+    )
+
+    assert events[0]["label"] == "파일 읽기"
+    assert events[0]["message"] == "AGENT가 파일 읽기를 시작합니다."
+    assert "skillName" not in events[0]["summary"]
+
+
 def test_stream_event_normalizer_maps_middleware_display_names() -> None:
     events = StreamEventNormalizer().normalize(
         {
@@ -575,6 +689,75 @@ def test_stream_event_normalizer_maps_middleware_display_names() -> None:
     assert events[0]["message"] == "AGENT가 도구 호출 정리를 완료했습니다."
     assert "PatchToolCallsMiddleware" not in events[0]["label"]
     assert "PatchToolCallsMiddleware" not in events[0]["message"]
+
+
+def test_stream_event_normalizer_maps_skills_middleware_metadata() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_end",
+            "name": "SkillsMiddleware.before_agent",
+            "run_id": "skills-run",
+            "data": {
+                "output": {
+                    "skills_metadata": [
+                        {
+                            "name": "writing-guide",
+                            "description": "Use this guide for writing requests.",
+                            "path": "/.agents/skills/writing-guide/SKILL.md",
+                        }
+                    ]
+                }
+            },
+        }
+    )
+
+    assert events[0]["kind"] == "activity"
+    assert events[0]["label"] == "스킬 확인"
+    assert events[0]["message"] == "AGENT가 workspace 스킬 확인을 완료했습니다."
+    assert events[0]["summary"]["skills"] == [
+        "writing-guide: Use this guide for writing requests."
+    ]
+    assert events[0]["summary"]["result"] is None
+    assert "SkillsMiddleware" not in events[0]["label"]
+    assert "SkillsMiddleware" not in events[0]["message"]
+
+
+def test_stream_event_normalizer_hides_unknown_middleware_names() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_end",
+            "name": "SomeNewMiddleware.before_agent",
+            "run_id": "middleware-run",
+            "data": {"output": {}},
+        }
+    )
+
+    assert events[0]["label"] == "내부 작업"
+    assert events[0]["message"] == "AGENT가 내부 작업을 완료했습니다."
+    assert "SomeNewMiddleware" not in events[0]["label"]
+    assert "SomeNewMiddleware" not in events[0]["message"]
+
+
+def test_stream_event_normalizer_extracts_tool_message_content_only() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_tool_end",
+            "name": "write_file",
+            "run_id": "tool-run",
+            "data": {
+                "output": (
+                    "content='Cannot write to /2026-05-06_diary.txt because it "
+                    "already exists.' name='write_file' "
+                    "tool_call_id='chatcmpl-tool-1'"
+                )
+            },
+        }
+    )
+
+    assert events[0]["summary"]["result"] == (
+        "Cannot write to /2026-05-06_diary.txt because it already exists."
+    )
+    assert "tool_call_id" not in events[0]["summary"]["result"]
 
 
 def test_stream_event_normalizer_maps_office_worker_tool_names() -> None:

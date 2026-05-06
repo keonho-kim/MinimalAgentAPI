@@ -8,7 +8,7 @@ from minial_agent.integrations.upload.storage import unique_path
 
 REGISTRY_FILENAME = "files.json"
 INTERNAL_DIR_NAMES = frozenset(
-    {".registry", ".converted", ".jobs", ".cache", ".outputs"}
+    {".registry", ".converted", ".jobs", ".cache", ".outputs", ".agents"}
 )
 
 
@@ -22,6 +22,8 @@ def ensure_upload_workspace(root_dir: str | Path) -> UploadWorkspace:
         converted_dir=root / ".converted",
         jobs_dir=root / ".jobs",
         cache_dir=root / ".cache",
+        agents_dir=root / ".agents",
+        skills_dir=root / ".agents" / "skills",
         registry_path=root / ".registry" / REGISTRY_FILENAME,
     )
 
@@ -33,6 +35,8 @@ def ensure_upload_workspace(root_dir: str | Path) -> UploadWorkspace:
         workspace.converted_dir,
         workspace.jobs_dir,
         workspace.cache_dir,
+        workspace.agents_dir,
+        workspace.skills_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

@@ -128,6 +128,34 @@ export async function createChatStream({
   return body.stream_id;
 }
 
+export async function createSessionTitle({
+  userId,
+  sessionUuid,
+  message,
+}: {
+  userId: string;
+  sessionUuid: string;
+  message: string;
+}) {
+  const response = await fetch("/api/session/title", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      uuid: sessionUuid,
+      message,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Title generation failed: ${response.status}`);
+  }
+
+  return (await response.json()) as { title: string };
+}
+
 export async function listFiles({
   userId,
   sessionUuid,

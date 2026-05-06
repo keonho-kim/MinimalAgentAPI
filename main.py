@@ -7,11 +7,12 @@ from fastapi.staticfiles import StaticFiles
 from minial_agent.api.agent.router import router as agent_router
 from minial_agent.api.fs.router import router as fs_router
 from minial_agent.api.processor.router import router as processor_router
+from minial_agent.api.session.router import router as session_router
 from minial_agent.common.config.loader import set_config
 
 set_config("env.toml")
 
-UI_DIST_DIR = Path(__file__).resolve().parent / "src" / "ui" / "dist"
+UI_DIST_DIR = Path(__file__).resolve().parent / "ui" / "dist"
 
 
 def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
@@ -19,6 +20,7 @@ def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(fs_router)
     app.include_router(processor_router)
+    app.include_router(session_router)
 
     @app.get("/", include_in_schema=False)
     async def redirect_to_ui():
@@ -29,7 +31,7 @@ def create_app(ui_dist_dir: Path = UI_DIST_DIR) -> FastAPI:
         index_path = ui_dist_dir / "index.html"
         if not index_path.is_file():
             return PlainTextResponse(
-                "Frontend build not found. Run `bun run build` in src/ui first.",
+                "Frontend build not found. Run `bun run build` in ui first.",
                 status_code=503,
             )
         return FileResponse(index_path)

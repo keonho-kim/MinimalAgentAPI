@@ -15,6 +15,8 @@ class UploadWorkspace:
     converted_dir: Path
     jobs_dir: Path
     cache_dir: Path
+    agents_dir: Path
+    skills_dir: Path
     registry_path: Path
 
 

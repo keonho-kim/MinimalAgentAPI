@@ -12,6 +12,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 
 import {
   createChatStream,
+  createSessionTitle,
   getFilePreview,
   listFiles,
   searchFiles,
@@ -35,15 +36,16 @@ import {
   findActiveFileMention,
   replaceFileMention,
 } from "@/lib/file-mentions";
+import {
+  activityMessageId,
+  mergeActivityEvent,
+  normalizeGroupedActivity,
+} from "@/lib/activity-grouping";
 import { openChatEventSource, type AgentUiEvent } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 import {
-  createSession,
-  deleteSession,
   getSessionHistory,
-  getSessions,
   saveSessionHistory,
-  touchSession,
   useSessionStore,
 } from "@/store/session-store";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +120,14 @@ function isPreviewSupported(filename: string) {
   return PREVIEW_EXTENSIONS.has(extension);
 }
 
+function shortSessionTitle(title: string) {
+  const letters = Array.from(title.trim());
+  if (letters.length <= 10) {
+    return title;
+  }
+  return `${letters.slice(0, 10).join("")}...`;
+}
+
 export function App() {
   return (
     <TooltipProvider>
@@ -130,9 +140,14 @@ function MinimalAgentShell() {
   const {
     userId,
     sessionUuid,
+    sessions,
     fileDrawerOpen,
     setUserId,
     setSessionUuid,
+    createSession,
+    removeSession: removeStoredSession,
+    renameSession,
+    touchSession,
     setFileDrawerOpen,
   } = useSessionStore();
   const [message, setMessage] = useState("");
@@ -162,7 +177,6 @@ function MinimalAgentShell() {
   const [hitlSubmitting, setHitlSubmitting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const sessions = useMemo(() => getSessions(userId), [userId, sessionUuid]);
   const currentSession =
     sessions.find((session) => session.uuid === sessionUuid) ?? sessions[0];
   const activeMention = useMemo(
@@ -221,6 +235,10 @@ function MinimalAgentShell() {
 
   function clearHitlState() {
     setActiveStreamId(null);
+    clearHitlDialogState();
+  }
+
+  function clearHitlDialogState() {
     setPendingHitl(null);
     setHitlMode("review");
     setHitlDrafts([]);
@@ -244,7 +262,7 @@ function MinimalAgentShell() {
   }
 
   function startSession() {
-    const session = createSession(userId);
+    const session = createSession();
     switchSession(session.uuid);
   }
 
@@ -310,12 +328,11 @@ function MinimalAgentShell() {
   }
 
   function removeSession(uuid: string) {
-    const remaining = deleteSession(userId, uuid);
+    const nextSessionUuid = removeStoredSession(uuid);
     if (uuid !== sessionUuid) {
       return;
     }
-    const next = remaining[0] ?? createSession(userId);
-    switchSession(next.uuid);
+    switchSession(nextSessionUuid);
   }
 
   function appendAssistantText(text: string) {
@@ -338,7 +355,7 @@ function MinimalAgentShell() {
     });
   }
 
-  function appendEvent(event: AgentUiEvent) {
+  function appendEvent(event: AgentUiEvent, scopeId: string) {
     if (event.kind === "assistant_delta" && event.text) {
       appendAssistantText(event.text);
       return;
@@ -359,21 +376,35 @@ function MinimalAgentShell() {
     }
 
     if (event.kind === "activity") {
-      const activityId = event.id ? `activity:${event.id}` : createId();
+      const activity = normalizeGroupedActivity(event);
+      const activityId = activityMessageId(activity, createId(), scopeId);
       setUiMessages((current) => {
         const nextMessage: UiMessage = {
           id: activityId,
           role: "assistant",
-          content: event.message || event.label || event.name || "Agent activity",
+          content:
+            activity.message || activity.label || activity.name || "Agent activity",
           kind: "activity",
-          activity: event,
+          activity,
         };
         const existingIndex = current.findIndex((item) => item.id === activityId);
         if (existingIndex === -1) {
           return [...current, nextMessage];
         }
         const next = [...current];
-        next[existingIndex] = nextMessage;
+        const existing = next[existingIndex];
+        const mergedActivity = existing.activity
+          ? mergeActivityEvent(existing.activity, activity)
+          : activity;
+        next[existingIndex] = {
+          ...nextMessage,
+          content:
+            mergedActivity.message ||
+            mergedActivity.label ||
+            mergedActivity.name ||
+            nextMessage.content,
+          activity: mergedActivity,
+        };
         return next;
       });
     }
@@ -409,6 +440,13 @@ function MinimalAgentShell() {
         chatHistory: history,
       });
       setActiveStreamId(streamId);
+      if (history.length === 0 && currentSession?.title === "New session") {
+        void updateGeneratedSessionTitle({
+          targetUserId: userId,
+          targetSessionUuid: sessionUuid,
+          firstMessage: content,
+        });
+      }
 
       let assistantText = "";
       const source = openChatEventSource(streamId, {
@@ -416,7 +454,7 @@ function MinimalAgentShell() {
           if (uiEvent.kind === "assistant_delta" && uiEvent.text) {
             assistantText += uiEvent.text;
           }
-          appendEvent(uiEvent);
+          appendEvent(uiEvent, streamId);
         },
         onHitlRequest(hitlRequest) {
           setPendingHitl(hitlRequest);
@@ -427,11 +465,7 @@ function MinimalAgentShell() {
           setStatus("Approval required");
         },
         onHitlResumed() {
-          setPendingHitl(null);
-          setHitlMode("review");
-          setHitlDrafts([]);
-          setHitlRejectMessage("");
-          setHitlStatus(null);
+          clearHitlDialogState();
           setStatus("Streaming");
         },
         onDone() {
@@ -442,7 +476,7 @@ function MinimalAgentShell() {
               ]
             : nextHistory;
           saveSessionHistory(userId, sessionUuid, completedHistory);
-          touchSession(userId, sessionUuid, content);
+          touchSession(sessionUuid, content);
           setStatus("Idle");
           clearHitlState();
           closeStream();
@@ -514,8 +548,8 @@ function MinimalAgentShell() {
     setHitlStatus("승인 결정을 제출하는 중입니다...");
     try {
       await submitHitlDecision({ streamId: activeStreamId, decisions });
+      clearHitlDialogState();
       setStatus("Resuming");
-      setHitlStatus("승인 결정이 제출되었습니다.");
     } catch (error) {
       setHitlStatus(error instanceof Error ? error.message : "Approval failed.");
       setHitlSubmitting(false);
@@ -548,6 +582,29 @@ function MinimalAgentShell() {
       await refreshFiles();
     } catch (error) {
       setFileStatus(error instanceof Error ? error.message : "Upload failed.");
+    }
+  }
+
+  async function updateGeneratedSessionTitle({
+    targetUserId,
+    targetSessionUuid,
+    firstMessage,
+  }: {
+    targetUserId: string;
+    targetSessionUuid: string;
+    firstMessage: string;
+  }) {
+    try {
+      const response = await createSessionTitle({
+        userId: targetUserId,
+        sessionUuid: targetSessionUuid,
+        message: firstMessage,
+      });
+      if (targetUserId === userId) {
+        renameSession(targetSessionUuid, response.title);
+      }
+    } catch {
+      // Session title generation must not block chat.
     }
   }
 
@@ -626,16 +683,22 @@ function MinimalAgentShell() {
         <ScrollArea className="mt-2 flex-1">
           <div className="flex flex-col gap-1 pr-2">
             {sessions.map((session) => (
-              <div key={session.uuid} className="group relative">
+              <div
+                key={session.uuid}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1"
+              >
                 <Button
-                  className="w-full min-w-0 justify-start px-3 pr-11"
+                  className="w-full min-w-0 justify-start overflow-hidden px-3"
                   variant={session.uuid === sessionUuid ? "secondary" : "ghost"}
                   onClick={() => switchSession(session.uuid)}
+                  title={session.title}
                 >
-                  <span className="truncate">{session.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {shortSessionTitle(session.title)}
+                  </span>
                 </Button>
                 <Button
-                  className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                  className="text-muted-foreground hover:text-foreground"
                   size="icon"
                   variant="ghost"
                   onClick={(event) => {

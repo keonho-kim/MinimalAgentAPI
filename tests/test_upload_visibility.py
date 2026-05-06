@@ -1,6 +1,7 @@
 import json
 
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.middleware.skills import _list_skills
 from openpyxl import Workbook, load_workbook
 import pytest
 
@@ -39,6 +40,7 @@ def test_normalize_public_workspace_path_rejects_internal_paths() -> None:
 
     for hidden_path in (
         "/workspace/.registry/files.json",
+        ".agents/skills/toy-skill/SKILL.md",
         ".converted/file_001/manifest.json",
         "/files/.secret",
         "/workspace/outputs/result.docx",
@@ -68,6 +70,36 @@ def test_filesystem_backend_rooted_at_files_hides_internal_directories(tmp_path)
     assert backend.grep("secret", "/").matches == []
     glob_matches = backend.glob("**/*", "/").matches or []
     assert [match["path"] for match in glob_matches] == ["/report.txt"]
+
+
+def test_workspace_agents_skills_are_internal_and_loadable(tmp_path) -> None:
+    skill_dir = tmp_path / ".agents" / "skills" / "toy-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: toy-skill
+description: Use this toy skill when testing workspace skill recognition.
+---
+
+# Toy Skill
+""",
+        encoding="utf-8",
+    )
+
+    workspace = ensure_upload_workspace(tmp_path)
+
+    assert (workspace.skills_dir / "toy-skill" / "SKILL.md").is_file()
+    assert not (workspace.files_dir / ".agents").exists()
+
+    backend = FilesystemBackend(
+        root_dir=workspace.agents_dir,
+        virtual_mode=True,
+        max_file_size_mb=1024,
+    )
+    skills = _list_skills(backend, "/skills")
+
+    assert [skill["name"] for skill in skills] == ["toy-skill"]
+    assert skills[0]["path"] == "/skills/toy-skill/SKILL.md"
 
 
 def test_resolver_returns_public_metadata_without_internal_paths(tmp_path) -> None:

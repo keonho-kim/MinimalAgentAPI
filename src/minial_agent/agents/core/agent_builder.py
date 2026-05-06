@@ -2,10 +2,12 @@ import os
 from textwrap import dedent
 from pathlib import Path
 
+from deepagents.backends import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -31,22 +33,31 @@ class AgentBuilder:
     def get_agent(self, user_id: str, uuid: str):
         _store = InMemoryStore()
         _checkpointer = InMemorySaver()
-        _root_dir = self._get_workspace_root(user_id=user_id, uuid=uuid)
-        backend = FilesystemBackend(
-            root_dir=_root_dir,
+        workspace = self._get_workspace(user_id=user_id, uuid=uuid)
+        files_backend = FilesystemBackend(
+            root_dir=workspace.files_dir,
             virtual_mode=True,
             max_file_size_mb=1024,
         )
+        skills_backend = FilesystemBackend(
+            root_dir=workspace.agents_dir,
+            virtual_mode=True,
+            max_file_size_mb=1024,
+        )
+        core_backend = CompositeBackend(
+            default=files_backend,
+            routes={"/.agents/": skills_backend},
+        )
 
         model = llm_client()
-        
+
         office_agent = build_office_file_agent(
             model=model,
-            backend=backend,
+            backend=files_backend,
             store=_store,
             checkpointer=_checkpointer,
         )
-        
+
         office_subagent = CompiledSubAgent(
             name="office_file_agent",
             description=dedent("""
@@ -59,11 +70,15 @@ class AgentBuilder:
             model=model,
             system_prompt=CORE_AGENT_SYSTEM_PROMPT,
             middleware=[
+                SkillsMiddleware(
+                    backend=core_backend,
+                    sources=[("/.agents/skills", "Workspace")],
+                ),
                 FilesystemMiddleware(
-                    backend=backend,
+                    backend=core_backend,
                 ),
                 SubAgentMiddleware(
-                    backend=backend,
+                    backend=files_backend,
                     subagents=[office_subagent],
                 ),
                 SummarizationMiddleware(
@@ -100,13 +115,15 @@ class AgentBuilder:
         )
 
     def _get_workspace_root(self, user_id: str, uuid: str) -> str:
+        return str(self._get_workspace(user_id=user_id, uuid=uuid).files_dir)
+
+    def _get_workspace(self, user_id: str, uuid: str):
         self._validate_path_part(user_id)
         self._validate_path_part(uuid)
 
         base_dir = Path(os.getenv("AGENT_RUNTIME_ROOT_DIR", "./tmpWorkspace"))
         workspace_root = base_dir / user_id
-        workspace = ensure_upload_workspace(workspace_root)
-        return str(workspace.files_dir)
+        return ensure_upload_workspace(workspace_root)
 
     def _validate_path_part(self, value: str) -> None:
         if not value or value in {".", ".."} or Path(value).name != value:

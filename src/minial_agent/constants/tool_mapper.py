@@ -50,6 +50,22 @@ HITL_MIDDLEWARE_DISPLAY = ToolDisplay(
     pending_message="AGENT가 승인 확인을 준비합니다.",
 )
 
+SKILLS_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="스킬 확인",
+    running_message="AGENT가 workspace 스킬을 확인합니다.",
+    completed_message="AGENT가 workspace 스킬 확인을 완료했습니다.",
+    error_message="AGENT가 workspace 스킬 확인 중 오류가 발생했습니다.",
+    pending_message="AGENT가 workspace 스킬 확인을 준비합니다.",
+)
+
+INTERNAL_MIDDLEWARE_DISPLAY = ToolDisplay(
+    label="내부 작업",
+    running_message="AGENT가 내부 작업을 진행합니다.",
+    completed_message="AGENT가 내부 작업을 완료했습니다.",
+    error_message="AGENT가 내부 작업 중 오류가 발생했습니다.",
+    pending_message="AGENT가 내부 작업을 준비합니다.",
+)
+
 
 def _standard_display(label: str) -> ToolDisplay:
     return ToolDisplay(
@@ -133,6 +149,9 @@ TOOL_DISPLAY_MAP: dict[str, ToolDisplay] = {
     "HumanInTheLoopMiddleware": HITL_MIDDLEWARE_DISPLAY,
     "HumanInTheLoopMiddleware.before_agent": HITL_MIDDLEWARE_DISPLAY,
     "HumanInTheLoopMiddleware.after_agent": HITL_MIDDLEWARE_DISPLAY,
+    "SkillsMiddleware": SKILLS_MIDDLEWARE_DISPLAY,
+    "SkillsMiddleware.before_agent": SKILLS_MIDDLEWARE_DISPLAY,
+    "SkillsMiddleware.after_agent": SKILLS_MIDDLEWARE_DISPLAY,
     "answer_docx_question": _standard_display("DOCX 질문 답변"),
     "answer_hwpx_question": _standard_display("HWPX 질문 답변"),
     "answer_pptx_question": _standard_display("PPTX 질문 답변"),
@@ -150,6 +169,9 @@ def get_tool_display(name: str | None) -> ToolDisplay:
     display = TOOL_DISPLAY_MAP.get(tool_name)
     if display:
         return display
+
+    if _is_middleware_name(tool_name):
+        return INTERNAL_MIDDLEWARE_DISPLAY
 
     label = tool_name
     return ToolDisplay(
@@ -176,3 +198,11 @@ def get_tool_message(name: str | None, status: str) -> str:
         return display.error_message
 
     return display.pending_message
+
+
+def _is_middleware_name(name: str) -> bool:
+    return (
+        "Middleware" in name
+        or name.endswith(".before_agent")
+        or name.endswith(".after_agent")
+    )

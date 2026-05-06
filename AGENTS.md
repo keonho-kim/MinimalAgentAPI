@@ -8,7 +8,7 @@ Your job is to implement exactly what the user asked for with minimum necessary 
 
 - `MinimalAgent API` is a local agent API and UI project.
 - The backend is Python 3.13, FastAPI, LangChain/LangGraph, DeepAgents, and local workspace-backed file processing.
-- The frontend is moving from the current `src/static` vanilla module UI to a Bun-based React app under `src/ui`.
+- The frontend is moving from the current `src/static` vanilla module UI to a Bun-based React app under `ui`.
 - The product centers on chat streaming, agent activity visibility, local workspace files, upload/conversion artifacts, and minimal document-agent workflows.
 - The overall code style is minimal and essential: keep the feature surface small, explicit, and easy to inspect.
 
@@ -25,8 +25,8 @@ Your job is to implement exactly what the user asked for with minimum necessary 
 - Do not use npm, pnpm, or yarn for frontend work unless the user explicitly asks for it.
 - Backend settings come from `env.toml` through the existing config loader. Do not move backend runtime configuration into frontend config.
 - The backend entrypoint is `main.py`; it loads `env.toml`, creates the FastAPI app, and includes routers.
-- FastAPI must serve the completed frontend build output from `src/ui/dist` as the static UI, mounted under `/ui`.
-- Frontend build output must go to `src/ui/dist`.
+- FastAPI must serve the completed frontend build output from `ui/dist` as the static UI, mounted under `/ui`.
+- Frontend build output must go to `ui/dist`.
 
 ## Source Architecture
 
@@ -43,9 +43,9 @@ Your job is to implement exactly what the user asked for with minimum necessary 
 
 ### Frontend
 
-- New frontend source lives under `src/ui`.
-- Build artifacts live under `src/ui/dist`.
-- Backend-served UI must come from `src/ui/dist` after `bun run build`.
+- New frontend source lives under `ui`.
+- Build artifacts live under `ui/dist`.
+- Backend-served UI must come from `ui/dist` after `bun run build`.
 - The current `src/static` UI is the behavior reference for the React migration, not the long-term source location.
 - Preserve the current visible UI capabilities when migrating:
   - user ID and session selection
@@ -174,7 +174,7 @@ Do not prioritize cleverness, premature extensibility, transition comfort, or th
 - Current known state: `uv run ruff check .` reports existing unused-import issues.
 - Current known state: `uv run ty check` reports existing type diagnostics.
 - Do not claim `ruff` or `ty` passed unless you actually ran them and they passed after the relevant changes.
-- Frontend validation should use Bun scripts once `src/ui` defines them. Do not invent script names that are not present in `package.json`.
+- Frontend validation should use Bun scripts once `ui` defines them. Do not invent script names that are not present in `package.json`.
 - Use Bun's test runner for TypeScript logic tests unless a dependency requires another runner.
 - Use Playwright for browser-level workflow checks when the task changes browser behavior.
 - Do not write separate tests for UI components as isolated visual units unless there is a concrete behavior to validate.

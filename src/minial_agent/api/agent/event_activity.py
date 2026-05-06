@@ -1,5 +1,7 @@
+import ast
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from minial_agent.constants.tool_mapper import get_tool_label, get_tool_message
@@ -20,6 +22,10 @@ HITL_TOOL_NAMES = {
     "edit_pptx",
     "edit_xlsx",
 }
+SKILL_READ_PENDING_MESSAGE = "AGENT가 스킬 읽기를 준비합니다."
+SKILL_READ_RUNNING_MESSAGE = "AGENT가 {skill_name} 스킬을 읽습니다."
+SKILL_READ_COMPLETED_MESSAGE = "AGENT가 {skill_name} 스킬을 읽었습니다."
+SKILL_READ_ERROR_MESSAGE = "AGENT가 {skill_name} 스킬을 읽는 중 오류가 발생했습니다."
 
 
 class ActivityEventBuilder:
@@ -28,6 +34,7 @@ class ActivityEventBuilder:
             Path(workspace_root).resolve() if workspace_root else None
         )
         self._activity_contexts: dict[str, dict[str, Any]] = {}
+        self._activity_inputs: dict[str, Any] = {}
 
     def create(
         self,
@@ -39,19 +46,47 @@ class ActivityEventBuilder:
     ) -> dict[str, Any]:
         name = raw.get("name") or activity_type
         activity_id = raw.get("run_id") or f"{activity_type}:{name}"
+        if (
+            input_value is None
+            and isinstance(activity_id, str)
+            and activity_id in self._activity_inputs
+        ):
+            input_value = self._activity_inputs[activity_id]
+
         summary = _summarize_activity(name, input_value, output)
         folder_context = self._get_write_file_parent_context(name, input_value)
+        skill_context = _get_skill_read_context(name, input_value)
 
-        if not folder_context and isinstance(activity_id, str):
-            folder_context = self._activity_contexts.get(activity_id)
+        if isinstance(activity_id, str):
+            stored_context = self._activity_contexts.get(activity_id)
+            if (
+                not folder_context
+                and stored_context
+                and stored_context.get("context_type") == "write_file_parent"
+            ):
+                folder_context = stored_context
+            if (
+                not skill_context
+                and stored_context
+                and stored_context.get("context_type") == "skill_read"
+            ):
+                skill_context = stored_context
 
         if folder_context:
             summary.update(folder_context["summary"])
             if status == "running" and isinstance(activity_id, str):
                 self._activity_contexts[activity_id] = folder_context
+        if skill_context:
+            summary.update(skill_context["summary"])
+            if status == "running" and isinstance(activity_id, str):
+                self._activity_contexts[activity_id] = skill_context
 
         message = get_tool_message(name, status)
-        if folder_context and status == "running":
+        label = get_tool_label(name)
+        if skill_context:
+            label = "스킬 읽기"
+            message = _skill_read_message(skill_context["skill_name"], status)
+        elif folder_context and status == "running":
             message = WRITE_FILE_PARENT_RUNNING_MESSAGE
         elif folder_context and status == "completed":
             if folder_context["real_parent_path"].exists() and not _output_looks_error(
@@ -66,8 +101,13 @@ class ActivityEventBuilder:
             summary["requiresApproval"] = True
             summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
 
+        if isinstance(activity_id, str) and status in {"pending", "running"}:
+            if input_value is not None:
+                self._activity_inputs[activity_id] = input_value
+
         if isinstance(activity_id, str) and status in {"completed", "error"}:
             self._activity_contexts.pop(activity_id, None)
+            self._activity_inputs.pop(activity_id, None)
 
         return {
             "kind": "activity",
@@ -77,7 +117,7 @@ class ActivityEventBuilder:
             "runId": activity_id,
             "parentIds": raw.get("parent_ids") or [],
             "name": name,
-            "label": get_tool_label(name),
+            "label": label,
             "message": message,
             "status": status,
             "input": input_value,
@@ -145,6 +185,13 @@ class ActivityEventBuilder:
         input_value = tool_call.get("args")
         status = "pending"
         summary = _summarize_activity(name, input_value)
+        skill_context = _get_skill_read_context(name, input_value)
+        label = get_tool_label(name)
+        message = get_tool_message(name, status)
+        if skill_context:
+            summary.update(skill_context["summary"])
+            label = "스킬 읽기"
+            message = _skill_read_message(skill_context["skill_name"], status)
         if name in HITL_TOOL_NAMES:
             summary["requiresApproval"] = True
             summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
@@ -157,8 +204,8 @@ class ActivityEventBuilder:
             "runId": run_id,
             "parentIds": raw.get("parent_ids") or [],
             "name": name,
-            "label": get_tool_label(name),
-            "message": get_tool_message(name, status),
+            "label": label,
+            "message": message,
             "status": status,
             "input": input_value,
             "summary": summary,
@@ -215,6 +262,7 @@ class ActivityEventBuilder:
 
         virtual_parent_path = _virtual_parent_path(virtual_path)
         return {
+            "context_type": "write_file_parent",
             "real_parent_path": parent_path,
             "summary": {
                 "createsParentDirectory": True,
@@ -229,8 +277,9 @@ def _summarize_activity(
 ) -> dict[str, Any]:
     source = object_or_empty(input_value)
     result = object_or_empty(output)
-
-    return {
+    skill_lines = _skill_metadata_lines(output)
+    result_preview = None if skill_lines else _preview_value(output)
+    summary = {
         "path": source.get("file_path")
         or source.get("path")
         or result.get("file_path")
@@ -238,8 +287,68 @@ def _summarize_activity(
         "command": source.get("command"),
         "query": source.get("query") or source.get("pattern"),
         "description": source.get("description"),
-        "result": _preview_value(output),
+        "result": result_preview,
     }
+
+    if skill_lines:
+        summary["skills"] = skill_lines
+
+    return summary
+
+
+def _get_skill_read_context(
+    name: str,
+    input_value: Any,
+) -> dict[str, Any] | None:
+    if name != "read_file":
+        return None
+
+    source = object_or_empty(input_value)
+    path = source.get("file_path") or source.get("path")
+    if not isinstance(path, str):
+        return None
+
+    skill_name = _skill_name_from_path(path)
+    if skill_name is None:
+        return None
+
+    return {
+        "context_type": "skill_read",
+        "skill_name": skill_name,
+        "summary": {
+            "skillName": skill_name,
+            "path": f"/.agents/skills/{skill_name}/SKILL.md",
+            "description": f"사용한 스킬: {skill_name}",
+        },
+    }
+
+
+def _skill_name_from_path(path: str) -> str | None:
+    normalized = path.strip().replace("\\", "/")
+    prefixes = (
+        "/.agents/skills/",
+        ".agents/skills/",
+    )
+    for prefix in prefixes:
+        if not normalized.startswith(prefix):
+            continue
+        relative = normalized.removeprefix(prefix)
+        parts = [part for part in relative.split("/") if part]
+        if len(parts) == 2 and parts[1] == "SKILL.md" and parts[0]:
+            return parts[0]
+    return None
+
+
+def _skill_read_message(skill_name: str, status: str) -> str:
+    if status == "pending":
+        return SKILL_READ_PENDING_MESSAGE
+    if status == "running":
+        return SKILL_READ_RUNNING_MESSAGE.format(skill_name=skill_name)
+    if status == "completed":
+        return SKILL_READ_COMPLETED_MESSAGE.format(skill_name=skill_name)
+    if status == "error":
+        return SKILL_READ_ERROR_MESSAGE.format(skill_name=skill_name)
+    return f"AGENT가 {skill_name} 스킬을 확인합니다."
 
 
 def _resolve_workspace_virtual_path(
@@ -294,7 +403,7 @@ def _preview_value(value: Any) -> str | None:
         return None
 
     if isinstance(value, str):
-        return _truncate(value)
+        return _truncate(_tool_message_content(value) or value)
 
     if isinstance(value, dict):
         useful = (
@@ -313,6 +422,46 @@ def _preview_value(value: Any) -> str | None:
         )
 
     return _truncate(str(value))
+
+
+def _skill_metadata_lines(value: Any) -> list[str]:
+    value = jsonable_mapping(value)
+    if not isinstance(value, dict):
+        return []
+
+    metadata = value.get("skills_metadata")
+    if not isinstance(metadata, list):
+        return []
+
+    lines = []
+    for item in metadata:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        description = item.get("description")
+        if isinstance(name, str) and name.strip():
+            if isinstance(description, str) and description.strip():
+                lines.append(f"{name.strip()}: {description.strip()}")
+            else:
+                lines.append(name.strip())
+
+    return lines
+
+
+def _tool_message_content(value: str) -> str | None:
+    match = re.search(
+        r"content=(?P<content>'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\")\s+name=",
+        value,
+    )
+    if not match:
+        return None
+
+    try:
+        content = ast.literal_eval(match.group("content"))
+    except (SyntaxError, ValueError):
+        return None
+
+    return content if isinstance(content, str) else None
 
 
 def _truncate(value: str, max_length: int = 700) -> str:

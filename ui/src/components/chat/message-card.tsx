@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 
 import type { ChatMessage } from "@/lib/api";
 import type { AgentUiEvent } from "@/lib/stream";
+import { activityDetailLines } from "@/lib/activity-summary";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -58,11 +59,8 @@ function ActivityMessage({
   fallback: string;
 }) {
   const summary = objectSummary(activity.summary);
-  const details = [
-    stringValue(summary.path),
-    stringValue(summary.description),
-    stringValue(summary.result),
-  ].filter(Boolean);
+  const details = activityDetailLines(summary);
+  const groupedCount = numberValue(summary.groupedCount);
 
   return (
     <div className="space-y-2">
@@ -70,6 +68,11 @@ function ActivityMessage({
         <span className="text-sm font-medium">
           {activity.label || activity.name || "Agent activity"}
         </span>
+        {groupedCount && groupedCount > 1 ? (
+          <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+            {groupedCount}회
+          </Badge>
+        ) : null}
         {activity.status ? (
           <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
             {formatActivityStatus(activity.status)}
@@ -94,11 +97,8 @@ function objectSummary(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function stringValue(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) {
-    return value;
-  }
-  return null;
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function formatActivityStatus(status: string) {

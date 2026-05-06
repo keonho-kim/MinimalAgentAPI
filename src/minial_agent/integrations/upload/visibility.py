@@ -7,6 +7,7 @@ REGISTRY_DIR_NAME = ".registry"
 CONVERTED_DIR_NAME = ".converted"
 JOBS_DIR_NAME = ".jobs"
 CACHE_DIR_NAME = ".cache"
+AGENTS_DIR_NAME = ".agents"
 
 PUBLIC_DIRS = frozenset({FILES_DIR_NAME})
 INTERNAL_DIRS = frozenset(
@@ -16,6 +17,7 @@ INTERNAL_DIRS = frozenset(
         CONVERTED_DIR_NAME,
         JOBS_DIR_NAME,
         CACHE_DIR_NAME,
+        AGENTS_DIR_NAME,
     }
 )
 

@@ -5,7 +5,7 @@ import {
   highlightedCodeBlock,
   languageForFilename,
   normalizeCodeLanguage,
-} from "../src/ui/src/lib/code-highlight";
+} from "../ui/src/lib/code-highlight";
 
 test("maps supported code filenames to highlight languages", () => {
   expect(languageForFilename("script.py")).toBe("python");
