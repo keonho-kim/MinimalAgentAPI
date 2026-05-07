@@ -1,12 +1,13 @@
 import asyncio
 import importlib
+import socket
 from contextlib import asynccontextmanager
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, AIMessageChunk
-from langgraph.types import Command
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langgraph.types import Command, Interrupt
 
 from minial_agent.api.agent.router import router
 from minial_agent.api.agent.schema import ChatRequest, HitlResumeRequest, HitlResumeResponse
@@ -365,6 +366,66 @@ def test_chat_service_streams_hitl_request_and_resumes() -> None:
     asyncio.run(run())
 
 
+def test_chat_service_hitl_extraction_ignores_nonserializable_event_objects() -> None:
+    service = ChatService(queue=InMemoryQueue())
+    raw_socket = socket.socket()
+    try:
+        payload = service._extract_hitl_payload(
+            stream_id="stream-id",
+            event={
+                "event": "on_chain_stream",
+                "metadata": {"client_socket": raw_socket},
+                "data": {"runtime": raw_socket},
+            },
+        )
+    finally:
+        raw_socket.close()
+
+    assert payload is None
+
+
+def test_chat_service_extracts_langgraph_v2_interrupt_objects() -> None:
+    service = ChatService(queue=InMemoryQueue())
+
+    payload = service._extract_hitl_payload(
+        stream_id="stream-id",
+        event={
+            "type": "values",
+            "interrupts": [
+                Interrupt(
+                    value={
+                        "action_requests": [
+                            {
+                                "name": "write_file",
+                                "args": {"file_path": "/draft.txt"},
+                                "description": "Approve write",
+                            }
+                        ],
+                        "review_configs": [
+                            {
+                                "allowed_decisions": ["approve", "edit", "reject"],
+                            }
+                        ],
+                    },
+                    id="interrupt-1",
+                )
+            ],
+        },
+    )
+
+    assert payload == {
+        "stream_id": "stream-id",
+        "actions": [
+            {
+                "name": "write_file",
+                "args": {"file_path": "/draft.txt"},
+                "description": "Approve write",
+                "allowed_decisions": ["approve", "edit", "reject"],
+            }
+        ],
+    }
+
+
 def test_chat_service_rejects_missing_hitl_stream() -> None:
     async def run() -> None:
         service = ChatService(queue=InMemoryQueue())
@@ -494,7 +555,49 @@ def test_stream_event_normalizer_filters_generic_chain_events() -> None:
 
     assert hidden == []
     assert visible[0]["kind"] == "activity"
+    assert visible[0]["type"] == "subagent"
     assert visible[0]["label"] == "서브에이전트 위임"
+    assert visible[0]["summary"]["delegationRunId"] == "task-run"
+
+
+def test_stream_event_normalizer_maps_agent_chain_to_delegation_step() -> None:
+    normalizer = StreamEventNormalizer()
+
+    normalizer.normalize(
+        {
+            "event": "on_chain_start",
+            "name": "task",
+            "run_id": "task-run",
+            "data": {"input": {"description": "office work"}},
+        }
+    )
+    events = normalizer.normalize(
+        {
+            "event": "on_chain_start",
+            "name": "agent_pdf",
+            "run_id": "pdf-agent-run",
+            "parent_ids": ["graph-run", "task-run"],
+            "data": {"input": {"file_id": "file_001"}},
+        }
+    )
+
+    assert events[0]["kind"] == "activity"
+    assert events[0]["type"] == "agent_step"
+    assert events[0]["label"] == "PDF 에이전트"
+    assert events[0]["summary"]["delegationRunId"] == "task-run"
+
+
+def test_stream_event_normalizer_hides_office_worker_chain_wrappers() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_start",
+            "name": "answer_pdf_question",
+            "run_id": "answer-chain-run",
+            "data": {"input": {"file_id": "file_001"}},
+        }
+    )
+
+    assert events == []
 
 
 def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_object() -> (
@@ -526,7 +629,8 @@ def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_objec
     assert events[1]["name"] == "write_file"
     assert events[1]["label"] == "파일 작성"
     assert events[1]["message"] == "AGENT가 파일 작성을 준비합니다."
-    assert events[1]["input"] == {"file_path": "/README.md"}
+    assert "input" not in events[1]
+    assert events[1]["summary"]["path"] == "/README.md"
 
 
 def test_stream_event_normalizer_preserves_model_text_without_selector_filtering() -> None:
@@ -586,6 +690,122 @@ def test_stream_event_normalizer_preserves_whitespace_only_text_chunk() -> None:
     )
 
 
+def test_stream_event_normalizer_streams_root_model_with_nested_parent_ids() -> None:
+    normalizer = StreamEventNormalizer()
+
+    events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "run_id": "root-run",
+            "parent_ids": ["graph-run", "model-chain-run"],
+            "metadata": {
+                "langgraph_node": "model",
+                "langgraph_checkpoint_ns": "model:root-checkpoint",
+            },
+            "data": {"chunk": "최종 답변입니다."},
+        }
+    )
+
+    assert events == [
+        {
+            "kind": "assistant_delta",
+            "id": "root-run",
+            "sourceEvent": "on_chat_model_stream",
+            "name": "ChatOpenAI",
+            "runId": "root-run",
+            "parentIds": ["graph-run", "model-chain-run"],
+            "text": "최종 답변입니다.",
+        }
+    ]
+
+
+def test_stream_event_normalizer_keeps_nested_model_text_out_of_answer() -> None:
+    normalizer = StreamEventNormalizer()
+
+    stream_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_stream",
+            "name": "model",
+            "run_id": "nested-run",
+            "parent_ids": ["graph", "agent_pdf"],
+            "metadata": {
+                "langgraph_node": "model",
+                "langgraph_checkpoint_ns": "tools:agent-run|model:nested-checkpoint",
+            },
+            "data": {"chunk": "중간 요약입니다."},
+        }
+    )
+    end_events = normalizer.normalize(
+        {
+            "event": "on_chat_model_end",
+            "name": "model",
+            "run_id": "nested-run",
+            "parent_ids": ["graph", "agent_pdf"],
+            "metadata": {
+                "langgraph_node": "model",
+                "langgraph_checkpoint_ns": "tools:agent-run|model:nested-checkpoint",
+            },
+            "data": {"output": "ignored duplicate"},
+        }
+    )
+
+    assert stream_events == []
+    assert end_events == []
+
+
+def test_stream_event_normalizer_ignores_incomplete_tool_call_chunks() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chat_model_stream",
+            "run_id": "model-run",
+            "data": {
+                "chunk": AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": None,
+                            "args": '"file_path"',
+                            "id": None,
+                            "index": 0,
+                        }
+                    ],
+                )
+            },
+        }
+    )
+
+    assert events == []
+
+
+def test_stream_event_normalizer_emits_tool_intent_once_per_call() -> None:
+    normalizer = StreamEventNormalizer()
+    raw = {
+        "event": "on_chat_model_stream",
+        "run_id": "model-run",
+        "data": {
+            "chunk": AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": "answer_pdf_question",
+                        "args": '{"file_path":"/report.pdf"}',
+                        "id": "call_1",
+                        "index": 0,
+                    }
+                ],
+            )
+        },
+    }
+
+    first = normalizer.normalize(raw)
+    second = normalizer.normalize(raw)
+
+    assert len(first) == 1
+    assert first[0]["name"] == "answer_pdf_question"
+    assert second == []
+
+
 def test_stream_event_normalizer_uses_server_tool_display_messages() -> None:
     normalizer = StreamEventNormalizer()
 
@@ -625,7 +845,7 @@ def test_stream_event_normalizer_preserves_tool_input_for_end_events() -> None:
     )
 
     assert events[0]["summary"]["path"] == "/.agents"
-    assert events[0]["summary"]["result"] == '["/.agents/skills/"]'
+    assert "result" not in events[0]["summary"]
 
 
 def test_stream_event_normalizer_marks_skill_file_reads() -> None:
@@ -683,12 +903,7 @@ def test_stream_event_normalizer_maps_middleware_display_names() -> None:
         }
     )
 
-    assert events[0]["kind"] == "activity"
-    assert events[0]["status"] == "completed"
-    assert events[0]["label"] == "도구 호출 정리"
-    assert events[0]["message"] == "AGENT가 도구 호출 정리를 완료했습니다."
-    assert "PatchToolCallsMiddleware" not in events[0]["label"]
-    assert "PatchToolCallsMiddleware" not in events[0]["message"]
+    assert events == []
 
 
 def test_stream_event_normalizer_maps_skills_middleware_metadata() -> None:
@@ -711,15 +926,7 @@ def test_stream_event_normalizer_maps_skills_middleware_metadata() -> None:
         }
     )
 
-    assert events[0]["kind"] == "activity"
-    assert events[0]["label"] == "스킬 확인"
-    assert events[0]["message"] == "AGENT가 workspace 스킬 확인을 완료했습니다."
-    assert events[0]["summary"]["skills"] == [
-        "writing-guide: Use this guide for writing requests."
-    ]
-    assert events[0]["summary"]["result"] is None
-    assert "SkillsMiddleware" not in events[0]["label"]
-    assert "SkillsMiddleware" not in events[0]["message"]
+    assert events == []
 
 
 def test_stream_event_normalizer_hides_unknown_middleware_names() -> None:
@@ -732,13 +939,10 @@ def test_stream_event_normalizer_hides_unknown_middleware_names() -> None:
         }
     )
 
-    assert events[0]["label"] == "내부 작업"
-    assert events[0]["message"] == "AGENT가 내부 작업을 완료했습니다."
-    assert "SomeNewMiddleware" not in events[0]["label"]
-    assert "SomeNewMiddleware" not in events[0]["message"]
+    assert events == []
 
 
-def test_stream_event_normalizer_extracts_tool_message_content_only() -> None:
+def test_stream_event_normalizer_does_not_parse_raw_tool_message_repr() -> None:
     events = StreamEventNormalizer().normalize(
         {
             "event": "on_tool_end",
@@ -754,10 +958,80 @@ def test_stream_event_normalizer_extracts_tool_message_content_only() -> None:
         }
     )
 
-    assert events[0]["summary"]["result"] == (
-        "Cannot write to /2026-05-06_diary.txt because it already exists."
+    assert "result" not in events[0]["summary"]
+
+
+def test_stream_event_normalizer_summarizes_tool_message_artifact() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_tool_end",
+            "name": "answer_pdf_question",
+            "run_id": "tool-run",
+            "data": {
+                "output": ToolMessage(
+                    content="raw content should not win",
+                    tool_call_id="call-1",
+                    artifact={
+                        "filename": "report.pdf",
+                        "page_count": 7,
+                        "relevant_pages": [{"page_number": 2}],
+                    },
+                )
+            },
+        }
     )
-    assert "tool_call_id" not in events[0]["summary"]["result"]
+
+    assert events[0]["summary"]["filename"] == "report.pdf"
+    assert events[0]["summary"]["pageCount"] == 7
+    assert events[0]["summary"]["relevantPages"] == [2]
+    assert "result" not in events[0]["summary"]
+
+
+def test_stream_event_normalizer_summarizes_command_without_raw_messages() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_end",
+            "name": "agent_pdf",
+            "run_id": "agent-run",
+            "data": {
+                "output": Command(
+                    update={
+                        "messages": [AIMessage(content="final answer")],
+                        "file_id": "file_001",
+                        "filename": "report.pdf",
+                        "page_count": 3,
+                    },
+                    goto="agent_pdf",
+                )
+            },
+        }
+    )
+
+    assert events[0]["type"] == "agent_step"
+    assert events[0]["label"] == "PDF 에이전트"
+    assert events[0]["message"] == "AGENT가 PDF 분석을 완료했습니다."
+    assert events[0]["summary"]["fileId"] == "file_001"
+    assert events[0]["summary"]["filename"] == "report.pdf"
+    assert events[0]["summary"]["pageCount"] == 3
+    assert events[0]["summary"]["next"] == "agent_pdf"
+    assert "messages" not in events[0]["summary"]
+    assert "result" not in events[0]["summary"]
+
+
+def test_stream_event_normalizer_maps_agent_names() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_start",
+            "name": "office_file_agent",
+            "run_id": "office-run",
+            "data": {"input": {"name": "agent_pdf", "file_id": "file_001"}},
+        }
+    )
+
+    assert events[0]["type"] == "agent_step"
+    assert events[0]["label"] == "PDF 에이전트"
+    assert events[0]["message"] == "AGENT가 PDF 분석을 시작합니다."
+    assert events[0]["summary"]["agentName"] == "agent_pdf"
 
 
 def test_stream_event_normalizer_maps_office_worker_tool_names() -> None:

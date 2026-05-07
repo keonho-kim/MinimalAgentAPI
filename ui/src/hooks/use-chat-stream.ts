@@ -12,12 +12,13 @@ import {
 } from "@/lib/chat-messages";
 import type { UiMessage } from "@/lib/chat-messages";
 import {
+  prependFileMentionAttachments,
   serializeFileMentions,
   syncFileMentionRanges,
   trimFileMentionText,
   validFileMentionRanges,
 } from "@/lib/file-mentions";
-import type { FileMentionRange } from "@/lib/file-mentions";
+import type { FileMentionAttachment, FileMentionRange } from "@/lib/file-mentions";
 import {
   buildSessionTitleContext,
   firstCompletedExchangeTitleContext,
@@ -195,17 +196,25 @@ export function useChatStream({
   );
 
   const submitMessage = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
+    async (
+      event: FormEvent<HTMLFormElement>,
+      attachments: FileMentionAttachment[] = [],
+    ) => {
       event.preventDefault();
       const displayMessage = trimFileMentionText(message, mentionRanges);
       const displayContent = displayMessage.value;
+      const messageWithAttachments = prependFileMentionAttachments({
+        value: displayContent,
+        ranges: displayMessage.ranges,
+        attachments,
+      });
       const serializedContent = serializeFileMentions(
-        displayContent,
-        displayMessage.ranges,
+        messageWithAttachments.value,
+        messageWithAttachments.ranges,
       );
 
       if (!displayContent || chatBlocked) {
-        return;
+        return false;
       }
 
       closeStream();
@@ -223,7 +232,10 @@ export function useChatStream({
 
       setUiMessages((current) => [
         ...current,
-        userMessage(displayContent, displayMessage.ranges),
+        userMessage(
+          messageWithAttachments.value,
+          messageWithAttachments.ranges,
+        ),
       ]);
 
       try {
@@ -286,6 +298,7 @@ export function useChatStream({
         });
 
         eventSourceRef.current = source;
+        return true;
       } catch (error) {
         setUiMessages((current) => [
           ...current,
@@ -293,6 +306,7 @@ export function useChatStream({
         ]);
         setStatus("Error");
         onStreamCleared();
+        return false;
       }
     },
     [

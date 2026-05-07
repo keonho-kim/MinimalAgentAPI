@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from langchain_core.load.dump import dumps as langchain_dumps
-from langgraph.types import Command
+from langgraph.types import Command, Interrupt
 
 from minial_agent.agents.core.agent_registry import AgentRegistry
 from minial_agent.common.locks import WorkspaceLockManager, workspace_lock_manager
@@ -284,20 +284,23 @@ class ChatService:
         stream_id: str,
         event: Any,
     ) -> dict[str, Any] | None:
-        interrupts = _find_interrupts(jsonable_encoder(event))
+        interrupts = _event_interrupts(event)
         if not interrupts:
             return None
 
         interrupt = interrupts[0]
-        value = interrupt.get("value") if isinstance(interrupt, dict) else None
-        if value is None:
+        value = _interrupt_value(interrupt)
+        if not isinstance(value, dict):
             return None
 
-        actions = value.get("action_requests", []) if isinstance(value, dict) else []
-        review_configs = value.get("review_configs", []) if isinstance(value, dict) else []
+        actions = _list_value(value.get("action_requests"))
+        review_configs = _list_value(value.get("review_configs"))
         normalized_actions = []
         for index, action in enumerate(actions):
+            if not isinstance(action, dict):
+                continue
             config = review_configs[index] if index < len(review_configs) else {}
+            config = config if isinstance(config, dict) else {}
             normalized_actions.append(
                 {
                     "name": action.get("name"),
@@ -312,23 +315,53 @@ class ChatService:
         }
 
 
-def _find_interrupts(value: Any) -> list[dict[str, Any]]:
+def _event_interrupts(event: Any) -> list[Any]:
+    if not isinstance(event, dict):
+        return []
+
+    interrupts = _coerce_interrupts(event.get("interrupts"))
+    data = event.get("data")
+    if isinstance(data, dict):
+        interrupts.extend(_find_interrupts(data))
+    return interrupts
+
+
+def _find_interrupts(value: Any) -> list[Any]:
     if isinstance(value, dict):
         interrupts = value.get("__interrupt__")
-        if isinstance(interrupts, list):
-            return [item for item in interrupts if isinstance(item, dict)]
-        if isinstance(interrupts, dict):
-            return [interrupts]
+        found = _coerce_interrupts(interrupts)
+        if found:
+            return found
         for child in value.values():
-            found = _find_interrupts(child)
-            if found:
-                return found
-    elif isinstance(value, list):
+            child_found = _find_interrupts(child)
+            if child_found:
+                return child_found
+    elif isinstance(value, (list, tuple)):
         for child in value:
             found = _find_interrupts(child)
             if found:
                 return found
     return []
+
+
+def _coerce_interrupts(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list | tuple):
+        return list(value)
+    return [value]
+
+
+def _interrupt_value(interrupt: Any) -> Any:
+    if isinstance(interrupt, Interrupt):
+        return interrupt.value
+    if isinstance(interrupt, dict):
+        return interrupt.get("value")
+    return None
+
+
+def _list_value(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, list | tuple) else []
 
 
 chat_service = ChatService()

@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { ChatMessageList } from "@/components/chat/chat-message-list";
@@ -13,6 +14,8 @@ import { useHitlApproval } from "@/hooks/use-hitl-approval";
 import { useSkillMentions } from "@/hooks/use-skill-mentions";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
 import type { FsListItem } from "@/lib/api";
+import { type FileMentionAttachment, toAgentFileHref } from "@/lib/file-mentions";
+import { createId } from "@/lib/id";
 import { isPreviewSupported } from "@/lib/preview-support";
 import { useSessionStore } from "@/store/session-store";
 
@@ -51,6 +54,12 @@ function MinimalAgentShell() {
   } = useSessionStore();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const markChatResumingRef = useRef<(() => void) | null>(null);
+  const [composerAttachments, setComposerAttachments] = useState<
+    FileMentionAttachment[]
+  >([]);
+  const [composerUploadError, setComposerUploadError] = useState<string | null>(
+    null,
+  );
   const currentSession = useMemo(
     () => sessions.find((session) => session.uuid === sessionUuid) ?? sessions[0],
     [sessionUuid, sessions],
@@ -99,6 +108,8 @@ function MinimalAgentShell() {
     mentions.close();
     skillMentions.close();
     hitl.clearState();
+    setComposerAttachments([]);
+    setComposerUploadError(null);
     setSessionUuid(nextUuid);
     chat.loadSession(nextUuid);
   }, [
@@ -165,60 +176,130 @@ function MinimalAgentShell() {
     void hitl.submit("edit");
   }, [hitl.submit]);
 
-  return (
-    <main className="flex min-h-svh overflow-hidden bg-background text-foreground">
-      <AppSidebar
-        sessionUuid={sessionUuid}
-        sessions={sessions}
-        status={chat.status}
-        userId={userId}
-        onNewSession={startSession}
-        onRemoveSession={removeSession}
-        onSwitchSession={switchSession}
-        onUserIdChange={setUserId}
-      />
+  const uploadComposerFiles = useCallback(
+    async (files: File[]) => {
+      setComposerUploadError(null);
+      try {
+        const response = await workspaceFiles.uploadSelectedFiles(files);
+        const results = response.uploaded_files.map((file, index) => ({
+          ...file,
+          originalName: files[index]?.name ?? file.filename,
+        }));
+        const uploaded = results.filter(
+          (file): file is typeof file & { path: string } =>
+            file.status === "converted" && Boolean(file.path),
+        );
+        const failed = results.filter(
+          (file) => file.status !== "converted" || !file.path,
+        );
 
-      <section className="flex min-w-0 flex-1 flex-col">
-        <ChatHeader
-          currentTitle={currentSession?.title}
+        if (uploaded.length) {
+          setComposerAttachments((current) => [
+            ...current,
+            ...uploaded.map((file) => ({
+              id: createId(),
+              label: file.originalName,
+              href: toAgentFileHref(file.path),
+            })),
+          ]);
+        }
+
+        if (failed.length) {
+          setComposerUploadError(
+            failed[0].error ?? "Upload failed for one or more files.",
+          );
+        }
+      } catch (error) {
+        setComposerUploadError(
+          error instanceof Error ? error.message : "Upload failed.",
+        );
+      }
+    },
+    [workspaceFiles.uploadSelectedFiles],
+  );
+
+  const removeComposerAttachment = useCallback((id: string) => {
+    setComposerAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
+    setComposerUploadError(null);
+  }, []);
+
+  const submitComposerMessage = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      void chat.submitMessage(event, composerAttachments).then((submitted) => {
+        if (!submitted) {
+          return;
+        }
+        setComposerAttachments([]);
+        setComposerUploadError(null);
+      });
+    },
+    [chat.submitMessage, composerAttachments],
+  );
+
+  return (
+    <AppShell
+      sidebar={
+        <AppSidebar
           sessionUuid={sessionUuid}
           sessions={sessions}
           status={chat.status}
           userId={userId}
           onNewSession={startSession}
-          onOpenFiles={openFiles}
+          onRemoveSession={removeSession}
           onSwitchSession={switchSession}
           onUserIdChange={setUserId}
         />
-
-        <ChatMessageList messages={chat.uiMessages} />
-
-        <ChatComposer
-          disabled={chat.chatBlocked}
-          mentionActive={mentions.active}
-          mentionIndex={mentions.activeIndex}
-          mentionMatches={mentions.matches}
-          mentionStatus={mentions.status}
-          message={chat.message}
-          mentionRanges={chat.mentionRanges}
-          skillMentionActive={skillMentions.active}
-          skillMentionIndex={skillMentions.activeIndex}
-          skillMentionMatches={skillMentions.matches}
-          skillMentionStatus={skillMentions.status}
-          textareaRef={textareaRef}
-          onCursorSync={(element) => {
-            mentions.syncCursor(element);
-            skillMentions.syncCursor(element);
-          }}
-          onMentionKeyDown={mentions.handleKeyDown}
-          onMentionSelect={mentions.select}
-          onSkillMentionKeyDown={skillMentions.handleKeyDown}
-          onSkillMentionSelect={skillMentions.select}
-          onMessageChange={chat.setMessage}
-          onSubmit={chat.submitMessage}
-        />
-      </section>
-
+      }
+    >
+      <ChatPane
+        composer={
+          <ChatComposer
+            disabled={chat.chatBlocked || workspaceFiles.uploadPending}
+            mentionActive={mentions.active}
+            mentionIndex={mentions.activeIndex}
+            mentionMatches={mentions.matches}
+            mentionStatus={mentions.status}
+            message={chat.message}
+            mentionRanges={chat.mentionRanges}
+            uploadAttachments={composerAttachments}
+            uploadError={composerUploadError}
+            uploadPending={workspaceFiles.uploadPending}
+            skillMentionActive={skillMentions.active}
+            skillMentionIndex={skillMentions.activeIndex}
+            skillMentionMatches={skillMentions.matches}
+            skillMentionStatus={skillMentions.status}
+            textareaRef={textareaRef}
+            onCursorSync={(element) => {
+              mentions.syncCursor(element);
+              skillMentions.syncCursor(element);
+            }}
+            onMentionKeyDown={mentions.handleKeyDown}
+            onMentionSelect={mentions.select}
+            onSkillMentionKeyDown={skillMentions.handleKeyDown}
+            onSkillMentionSelect={skillMentions.select}
+            onMessageChange={chat.setMessage}
+            onSubmit={submitComposerMessage}
+            onUploadAttachmentRemove={removeComposerAttachment}
+            onUploadFiles={uploadComposerFiles}
+          />
+        }
+        header={
+          <ChatHeader
+            currentTitle={currentSession?.title}
+            sessionUuid={sessionUuid}
+            sessions={sessions}
+            status={chat.status}
+            userId={userId}
+            onNewSession={startSession}
+            onOpenFiles={openFiles}
+            onSwitchSession={switchSession}
+            onUserIdChange={setUserId}
+          />
+        }
+        messages={<ChatMessageList messages={chat.uiMessages} />}
+      />
       <FileDrawer
         files={workspaceFiles.files}
         isPreviewSupported={isPreviewSupported}
@@ -258,6 +339,39 @@ function MinimalAgentShell() {
           />
         </Suspense>
       ) : null}
+    </AppShell>
+  );
+}
+
+function AppShell({
+  children,
+  sidebar,
+}: {
+  children: ReactNode;
+  sidebar: ReactNode;
+}) {
+  return (
+    <main className="flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      {sidebar}
+      {children}
     </main>
+  );
+}
+
+function ChatPane({
+  composer,
+  header,
+  messages,
+}: {
+  composer: ReactNode;
+  header: ReactNode;
+  messages: ReactNode;
+}) {
+  return (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {header}
+      {messages}
+      {composer}
+    </section>
   );
 }

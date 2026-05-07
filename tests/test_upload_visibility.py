@@ -1,3 +1,4 @@
+import base64
 import json
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -19,6 +20,9 @@ from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.
 )
 from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.read import (
     build_xlsx_read_workflow,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.utils import (
+    scan as scan_module,
 )
 from minial_agent.common.utils import file_registry
 from minial_agent.integrations.upload import ensure_upload_workspace
@@ -70,6 +74,20 @@ def test_filesystem_backend_rooted_at_files_hides_internal_directories(tmp_path)
     assert backend.grep("secret", "/").matches == []
     glob_matches = backend.glob("**/*", "/").matches or []
     assert [match["path"] for match in glob_matches] == ["/report.txt"]
+
+
+def test_filesystem_backend_agent_paths_are_rooted_at_files(tmp_path) -> None:
+    workspace = ensure_upload_workspace(tmp_path)
+    backend = FilesystemBackend(
+        root_dir=workspace.files_dir,
+        virtual_mode=True,
+        max_file_size_mb=1024,
+    )
+
+    assert backend.write("/summary.md", "ok").error is None
+
+    assert (workspace.files_dir / "summary.md").read_text(encoding="utf-8") == "ok"
+    assert not (workspace.files_dir / "files" / "summary.md").exists()
 
 
 def test_workspace_agents_skills_are_internal_and_loadable(tmp_path) -> None:
@@ -192,6 +210,43 @@ def test_workflow_result_does_not_expose_internal_paths(tmp_path) -> None:
     assert payload["answer"].startswith("관련 근거는 report.docx의 2페이지")
     assert ".converted" not in result["result"]
     assert ".registry" not in result["result"]
+
+
+def test_scan_page_uses_standard_image_block_with_filename(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    class FakeModel:
+        def invoke(self, payload):
+            captured["payload"] = payload
+            return "0; no_evidence"
+
+    def fake_llm_client(*, disable_streaming=False):
+        assert disable_streaming is True
+        return FakeModel()
+
+    page_path = tmp_path / "page_001.png"
+    page_path.write_bytes(b"png-bytes")
+    monkeypatch.setattr(scan_module, "llm_client", fake_llm_client)
+
+    result = scan_module.scan_page(
+        page_path=page_path,
+        question="question?",
+        prompt="Question: {question}",
+    )
+
+    content = captured["payload"][0]["content"]
+    image_block = content[1]
+    assert result == "0; no_evidence"
+    assert image_block == {
+        "type": "image",
+        "base64": base64.b64encode(b"png-bytes").decode("ascii"),
+        "mime_type": "image/png",
+        "filename": "page_001.png",
+    }
+    assert "image_url" not in image_block
 
 
 def test_workflow_rejects_malformed_page_scan(tmp_path) -> None:

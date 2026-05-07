@@ -22,9 +22,24 @@ test("replaces only the active file mention token", () => {
   const token = findActiveFileMention("summarize @rep please", 14);
 
   expect(token).not.toBeNull();
-  expect(replaceFileMention("summarize @rep please", token!, "files/report.docx"))
-    .toEqual({
-      value: "summarize @files/report.docx please",
-      cursorIndex: 28,
-    });
+  expect(
+    replaceFileMention("summarize @rep please", token!, {
+      name: "report.docx",
+      path: "files/report.docx",
+      type: "file",
+      size: 12,
+      modified_at: 0,
+    }),
+  ).toEqual({
+    value: "summarize report.docx please",
+    cursorIndex: 21,
+    mention: {
+      id: expect.any(String),
+      kind: "file",
+      start: 10,
+      end: 21,
+      label: "report.docx",
+      href: "/report.docx",
+    },
+  });
 });

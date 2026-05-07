@@ -56,6 +56,13 @@
   border-color: var(--border);
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -202,6 +209,33 @@ textarea {
 
 .skill-mention-pill::before {
   background: #b86a7b;
+}
+
+.chat-file-attachment-pill {
+  display: inline-flex;
+  max-width: min(20rem, 100%);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #2563eb 28%, transparent);
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.45;
+  padding: 0.08rem 0.55rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-file-attachment-pill::before {
+  content: "";
+  width: 0.38rem;
+  height: 0.38rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  margin-inline-end: 0.34rem;
+  background: #2563eb;
 }
 
 .message-renderer code {

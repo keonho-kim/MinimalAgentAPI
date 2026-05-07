@@ -12,6 +12,7 @@ export type AgentUiEvent =
     }
   | {
       kind: "activity";
+      type?: string;
       id?: string;
       sourceEvent?: string;
       runId?: string;

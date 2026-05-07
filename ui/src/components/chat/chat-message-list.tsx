@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 
 import type { UiMessage } from "@/lib/chat-messages";
 import { MessageCard } from "@/components/chat/message-card";
@@ -15,8 +15,22 @@ export const ChatMessageList = memo(function ChatMessageList({
 }: {
   messages: UiMessage[];
 }) {
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!messages.length) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [messages]);
+
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="min-h-0 flex-1 overflow-hidden">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-4 py-5 sm:py-6">
         {messages.length === 0 ? (
           <Card className="border-dashed bg-card/80">
@@ -30,6 +44,7 @@ export const ChatMessageList = memo(function ChatMessageList({
         ) : (
           messages.map((item) => <MessageCard key={item.id} item={item} />)
         )}
+        <div ref={bottomRef} />
       </div>
     </ScrollArea>
   );

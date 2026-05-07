@@ -3,7 +3,11 @@ import MarkdownIt from "markdown-it";
 import markdownItKatex from "markdown-it-katex";
 
 import { highlightedCodeBlock } from "@/lib/code-highlight";
-import { isFileMentionHref, isSkillMentionHref } from "@/lib/file-mentions";
+import {
+  isFileMentionHref,
+  isSkillMentionHref,
+  normalizeMarkdownFileMentionHrefs,
+} from "@/lib/file-mentions";
 
 const markdown = new MarkdownIt({
   breaks: true,
@@ -61,7 +65,7 @@ markdown.renderer.rules.link_close = (tokens, idx, options, env, self) => {
 };
 
 export function renderSafeMarkdown(source: string) {
-  const rendered = markdown.render(source);
+  const rendered = markdown.render(normalizeMarkdownFileMentionHrefs(source));
 
   return DOMPurify.sanitize(rendered, {
     USE_PROFILES: { html: true },

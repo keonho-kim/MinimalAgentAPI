@@ -26,6 +26,7 @@ class UploadedFileResult:
     filename: str
     file_type: str
     status: UploadStatus
+    path: str | None = None
     error: str | None = None
 
 

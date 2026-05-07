@@ -106,6 +106,19 @@ export type HitlDecision =
     }
   | { type: "reject"; message?: string };
 
+export type UploadedFileResponse = {
+  file_id: string;
+  filename: string;
+  file_type: string;
+  status: "uploaded" | "converted" | "conversion_failed";
+  path: string | null;
+  error: string | null;
+};
+
+export type UploadResponse = {
+  uploaded_files: UploadedFileResponse[];
+};
+
 export async function createChatStream({
   userId,
   sessionUuid,
@@ -288,7 +301,7 @@ export async function uploadFiles({
     throw new Error(`Upload failed: ${response.status}`);
   }
 
-  return await response.json();
+  return (await response.json()) as UploadResponse;
 }
 
 export async function submitHitlDecision({

@@ -74,7 +74,8 @@ async def save_upload_file(file: UploadFile, source_path: Path) -> None:
 
 def safe_filename(filename: str) -> str:
     name = Path(filename).name
-    name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip()
+    name = re.sub(r"[\x00-\x1f<>:\"/\\|?*]+", "_", name).strip()
+    name = name.strip(". ")
     return name or "uploaded_file"
 
 

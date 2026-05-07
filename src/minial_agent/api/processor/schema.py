@@ -6,6 +6,7 @@ class UploadedFileResponse(BaseModel):
     filename: str
     file_type: str
     status: str
+    path: str | None = None
     error: str | None = None
 
 

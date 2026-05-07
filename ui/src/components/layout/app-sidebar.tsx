@@ -1,6 +1,8 @@
-import { Bot, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+
+import wordmarkUrl from "../../../assets/logo/logo.png";
 
 import type { SessionSummary } from "@/store/session-store";
 import { Badge } from "@/components/ui/badge";
@@ -34,15 +36,13 @@ export const AppSidebar = memo(function AppSidebar({
   onUserIdChange(userId: string): void;
 }) {
   return (
-    <aside className="hidden w-72 shrink-0 border-r bg-card px-4 py-4 lg:flex lg:flex-col">
-      <div className="flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-md border bg-background text-muted-foreground">
-          <Bot data-icon="inline-start" />
-        </div>
-        <div>
-          <h1 className="text-base font-semibold">MinimalAgent</h1>
-          <p className="text-xs text-muted-foreground">Local agent console</p>
-        </div>
+    <aside className="hidden h-full min-h-0 w-72 shrink-0 border-r bg-card px-4 py-4 lg:flex lg:flex-col">
+      <div className="flex min-h-9 items-center">
+        <img
+          alt="LG CNS"
+          className="h-8 w-auto max-w-[10.5rem] object-contain"
+          src={wordmarkUrl}
+        />
       </div>
 
       <div className="mt-6 flex flex-col gap-2">
@@ -76,7 +76,7 @@ export const AppSidebar = memo(function AppSidebar({
         </Tooltip>
       </div>
 
-      <ScrollArea className="mt-2 flex-1">
+      <ScrollArea className="mt-2 min-h-0 flex-1">
         <div className="flex flex-col gap-0.5 pr-1">
           {sessions.map((session) => (
             <div

@@ -93,6 +93,7 @@ def _build_pdf_answer(state: PdfReadState) -> PdfReadState:
         file_type="pdf",
         step="answer",
         message="PDF 근거를 정리해 답변을 준비합니다.",
+        summary={"path": state["artifact"].visible_name},
     )
     result = build_pdf_answer(
         state.get("relevant_pages", []),
@@ -103,7 +104,10 @@ def _build_pdf_answer(state: PdfReadState) -> PdfReadState:
         step="answer",
         message="PDF 답변 근거 정리를 완료했습니다.",
         status="completed",
-        summary={"result": f"{result.get('relevant_page_count', 0)} relevant pages"},
+        summary={
+            "path": state["artifact"].visible_name,
+            "result": f"{result.get('relevant_page_count', 0)} relevant pages",
+        },
     )
     return {
         "answer_payload": result,

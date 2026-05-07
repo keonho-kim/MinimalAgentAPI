@@ -25,6 +25,12 @@ export type MarkdownFileMention = {
   href: string;
 };
 
+export type FileMentionAttachment = {
+  id: string;
+  label: string;
+  href: string;
+};
+
 export function findActiveFileMention(
   value: string,
   cursorIndex: number,
@@ -96,7 +102,7 @@ export function replaceFileMention(
       start: mentionStart,
       end: mentionEnd,
       label: file.name,
-      href: file.path,
+      href: toAgentFileHref(file.path),
     } satisfies FileMentionRange,
   };
 }
@@ -172,6 +178,150 @@ export function serializeFileMentions(value: string, ranges: FileMentionRange[])
   }
 
   return `${output}${value.slice(cursor)}`;
+}
+
+export function prependFileMentionAttachments({
+  value,
+  ranges,
+  attachments,
+}: {
+  value: string;
+  ranges: FileMentionRange[];
+  attachments: FileMentionAttachment[];
+}) {
+  const validAttachments = attachments.filter(
+    (attachment) => attachment.label.trim() && attachment.href.trim(),
+  );
+  if (!validAttachments.length) {
+    return {
+      value,
+      ranges: validFileMentionRanges(value, ranges),
+    };
+  }
+
+  let prefix = "";
+  const attachmentRanges: FileMentionRange[] = [];
+  for (const attachment of validAttachments) {
+    if (prefix) {
+      prefix += " ";
+    }
+    const start = prefix.length;
+    prefix += attachment.label;
+    attachmentRanges.push({
+      id: attachment.id,
+      kind: "file",
+      start,
+      end: prefix.length,
+      label: attachment.label,
+      href: toAgentFileHref(attachment.href),
+    });
+  }
+
+  const separator = value ? "\n" : "";
+  const nextValue = `${prefix}${separator}${value}`;
+  const offset = prefix.length + separator.length;
+  const shiftedRanges = ranges.map((range) => ({
+    ...range,
+    start: range.start + offset,
+    end: range.end + offset,
+  }));
+
+  return {
+    value: nextValue,
+    ranges: validFileMentionRanges(nextValue, [
+      ...attachmentRanges,
+      ...shiftedRanges,
+    ]),
+  };
+}
+
+export function splitLeadingFileMentionAttachments({
+  value,
+  ranges,
+}: {
+  value: string;
+  ranges: FileMentionRange[];
+}) {
+  const validRanges = validFileMentionRanges(value, ranges);
+  const attachments: FileMentionAttachment[] = [];
+  let cursor = 0;
+  let rangeIndex = 0;
+
+  for (; rangeIndex < validRanges.length; rangeIndex += 1) {
+    const range = validRanges[rangeIndex];
+    const gap = value.slice(cursor, range.start);
+    if (range.kind !== "file" || gap.trim()) {
+      break;
+    }
+
+    attachments.push({
+      id: range.id,
+      label: range.label,
+      href: range.href,
+    });
+    cursor = range.end;
+  }
+
+  if (!attachments.length) {
+    return {
+      attachments,
+      value,
+      ranges: validRanges,
+    };
+  }
+
+  const bodyStart = cursor + (value.slice(cursor).match(/^\s*/)?.[0].length ?? 0);
+  const bodyValue = value.slice(bodyStart);
+  const bodyRanges = validRanges
+    .slice(rangeIndex)
+    .filter((range) => range.start >= bodyStart)
+    .map((range) => ({
+      ...range,
+      start: range.start - bodyStart,
+      end: range.end - bodyStart,
+    }));
+
+  return {
+    attachments,
+    value: bodyValue,
+    ranges: validFileMentionRanges(bodyValue, bodyRanges),
+  };
+}
+
+export function splitLeadingMarkdownFileMentionAttachments(value: string) {
+  const mentions = parseMarkdownFileMentions(value);
+  const attachments: FileMentionAttachment[] = [];
+  let cursor = 0;
+  let mentionIndex = 0;
+
+  for (; mentionIndex < mentions.length; mentionIndex += 1) {
+    const mention = mentions[mentionIndex];
+    const gap = value.slice(cursor, mention.start);
+    if (gap.trim()) {
+      break;
+    }
+
+    attachments.push({
+      id: `markdown:${mention.start}:${mention.end}:${mention.href}`,
+      label: mention.label,
+      href: mention.href,
+    });
+    cursor = mention.end;
+  }
+
+  if (!attachments.length) {
+    return {
+      attachments,
+      value,
+    };
+  }
+
+  const bodyStart = cursor + (value.slice(cursor).match(/^\s*/)?.[0].length ?? 0);
+
+  return {
+    attachments,
+    value: value.slice(bodyStart),
+  };
 }
 
 export function trimFileMentionText(value: string, ranges: FileMentionRange[]) {
@@ -265,12 +415,63 @@ export function parseMarkdownFileMentions(value: string): MarkdownFileMention[] 
   return mentions;
 }
 
+export function normalizeMarkdownFileMentionHrefs(value: string) {
+  const mentions = parseMarkdownFileMentions(value);
+  if (!mentions.length) {
+    return value;
+  }
+
+  let cursor = 0;
+  let output = "";
+  for (const mention of mentions) {
+    output += value.slice(cursor, mention.start);
+    output += `[${escapeMarkdownLabel(mention.label)}](${mention.href.replaceAll(
+      " ",
+      "%20",
+    )})`;
+    cursor = mention.end;
+  }
+
+  return `${output}${value.slice(cursor)}`;
+}
+
 export function isFileMentionHref(href: string) {
   return !isSkillMentionHref(href) && !/^(https?:|mailto:)/i.test(href);
 }
 
 export function isSkillMentionHref(href: string) {
   return href.startsWith("/.agents/skills/");
+}
+
+export function toAgentFileHref(path: string) {
+  const normalized = path.trim().replaceAll("\\", "/");
+  if (!normalized || isSkillMentionHref(normalized)) {
+    return normalized;
+  }
+
+  for (const prefix of [
+    "/workspace/files/",
+    "workspace/files/",
+    "/files/",
+    "files/",
+  ]) {
+    if (normalized.startsWith(prefix)) {
+      return `/${normalized.slice(prefix.length)}`;
+    }
+  }
+
+  if (
+    normalized === "/workspace" ||
+    normalized === "workspace" ||
+    normalized === "/workspace/files" ||
+    normalized === "workspace/files" ||
+    normalized === "/files" ||
+    normalized === "files"
+  ) {
+    return "/";
+  }
+
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
 }
 
 function escapeMarkdownLabel(value: string) {

@@ -6,7 +6,27 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from minial_agent.agents.core import agent_builder
 from minial_agent.agents.core.agent_builder import AgentBuilder
+from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
 from minial_agent.agents.domain.office_file_agent import agent as office_agent
+from minial_agent.agents.domain.office_file_agent.system_prompt import (
+    OFFICE_FILE_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.system_prompt import (
+    DOCX_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.agent_hwpx.system_prompt import (
+    HWPX_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.system_prompt import (
+    PDF_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.agent_pptx.system_prompt import (
+    PPTX_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.system_prompt import (
+    XLSX_AGENT_SYSTEM_PROMPT,
+)
+from minial_agent.constants.user_request import USER_REQUEST
 
 
 def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
@@ -27,6 +47,9 @@ def test_agent_builder_uses_files_workspace(tmp_path, monkeypatch) -> None:
 
     def fake_patch_tool_calls_middleware():
         return {"patch_tool_calls": True}
+
+    def fake_tool_call_limit_middleware(**kwargs):
+        return {"tool_call_limit": kwargs}
 
     def fake_hitl_middleware(**kwargs):
         return {"hitl": kwargs}
@@ -140,6 +163,41 @@ def test_agent_builder_rejects_nested_workspace_parts(tmp_path, monkeypatch) -> 
         AgentBuilder()._get_workspace_root(user_id="../user", uuid="session")
 
 
+def test_agent_prompts_use_files_rooted_workspace_paths() -> None:
+    prompts = [
+        CORE_AGENT_SYSTEM_PROMPT,
+        OFFICE_FILE_AGENT_SYSTEM_PROMPT,
+        USER_REQUEST,
+    ]
+
+    assert all("/report.pdf" in prompt for prompt in prompts)
+    assert all("never" in prompt and "files/" in prompt for prompt in prompts)
+
+
+def test_agent_prompts_delegate_office_files_to_matching_subagents() -> None:
+    assert "OfficeFile Domain Agent" in CORE_AGENT_SYSTEM_PROMPT
+    assert "Do not read PDF or office binary files directly" in (
+        CORE_AGENT_SYSTEM_PROMPT
+    )
+    assert "Delegate each supported office file request" in (
+        OFFICE_FILE_AGENT_SYSTEM_PROMPT
+    )
+    assert "agent_pdf" in OFFICE_FILE_AGENT_SYSTEM_PROMPT
+    assert "agent_docx" in OFFICE_FILE_AGENT_SYSTEM_PROMPT
+    assert "agent_hwpx" in OFFICE_FILE_AGENT_SYSTEM_PROMPT
+    assert "agent_pptx" in OFFICE_FILE_AGENT_SYSTEM_PROMPT
+    assert "agent_xlsx" in OFFICE_FILE_AGENT_SYSTEM_PROMPT
+
+    worker_prompts = [
+        PDF_AGENT_SYSTEM_PROMPT,
+        DOCX_AGENT_SYSTEM_PROMPT,
+        HWPX_AGENT_SYSTEM_PROMPT,
+        PPTX_AGENT_SYSTEM_PROMPT,
+        XLSX_AGENT_SYSTEM_PROMPT,
+    ]
+    assert all("Do not use filesystem `read_file`" in prompt for prompt in worker_prompts)
+
+
 def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) -> None:
     captured_calls = []
 
@@ -156,6 +214,9 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
     def fake_patch_tool_calls_middleware():
         return {"patch_tool_calls": True}
 
+    def fake_tool_call_limit_middleware(**kwargs):
+        return {"tool_call_limit": kwargs}
+
     def fake_hitl_middleware(**kwargs):
         return {"hitl": kwargs}
 
@@ -167,6 +228,11 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
         office_agent,
         "PatchToolCallsMiddleware",
         fake_patch_tool_calls_middleware,
+    )
+    monkeypatch.setattr(
+        office_agent,
+        "ToolCallLimitMiddleware",
+        fake_tool_call_limit_middleware,
     )
 
     model = FakeListChatModel(responses=["ok"])
@@ -228,3 +294,10 @@ def test_office_file_agent_uses_create_agent_with_worker_subagents(monkeypatch) 
     assert worker_hitl["agent_pptx"] == {"write_file", "edit_file", "edit_pptx"}
     assert worker_hitl["agent_xlsx"] == {"write_file", "edit_file", "edit_xlsx"}
     assert worker_hitl["agent_pdf"] == {"write_file", "edit_file"}
+    pdf_call = worker_calls[4]
+    assert pdf_call["middleware"][2]["tool_call_limit"] == {
+        "tool_name": "answer_pdf_question",
+        "run_limit": 1,
+        "exit_behavior": "continue",
+    }
+    assert pdf_call["middleware"][3]["patch_tool_calls"] is True

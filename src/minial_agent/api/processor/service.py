@@ -28,6 +28,7 @@ class ProcessorService:
                     filename=file.filename,
                     file_type=file.file_type,
                     status=file.status,
+                    path=file.path,
                     error=file.error,
                 )
                 for file in uploaded_files

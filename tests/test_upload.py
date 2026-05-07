@@ -61,6 +61,7 @@ def test_upload_pdf_creates_registry_manifest_and_page_image(tmp_path, monkeypat
                 "filename": "sample.pdf",
                 "file_type": "pdf",
                 "status": "converted",
+                "path": "files/sample.pdf",
                 "error": None,
             }
         ]
@@ -110,6 +111,79 @@ def test_uploads_share_user_workspace_across_uuids(tmp_path, monkeypatch) -> Non
     ]
 
 
+def test_upload_response_uses_actual_unique_public_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    app = FastAPI()
+    app.include_router(processor_router)
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/upload",
+        data={"user_id": "user", "uuid": "session"},
+        files=[("files", ("sample.pdf", _make_pdf(), "application/pdf"))],
+    )
+    second = client.post(
+        "/api/upload",
+        data={"user_id": "user", "uuid": "session"},
+        files=[("files", ("sample.pdf", _make_pdf(), "application/pdf"))],
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["uploaded_files"][0]["path"] == "files/sample.pdf"
+    assert second.json()["uploaded_files"][0]["path"] == "files/sample_1.pdf"
+
+
+def test_upload_preserves_original_unicode_filename(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    app = FastAPI()
+    app.include_router(processor_router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/upload",
+        data={"user_id": "user", "uuid": "session"},
+        files=[
+            (
+                "files",
+                ("AX HUB 구축_제안요청서.pdf", _make_pdf(), "application/pdf"),
+            )
+        ],
+    )
+
+    assert response.status_code == 200
+    uploaded = response.json()["uploaded_files"][0]
+    assert uploaded["filename"] == "AX HUB 구축_제안요청서.pdf"
+    assert uploaded["path"] == "files/AX HUB 구축_제안요청서.pdf"
+    assert (tmp_path / "user" / "files" / "AX HUB 구축_제안요청서.pdf").is_file()
+
+
+def test_upload_replaces_only_unsafe_filename_characters(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    app = FastAPI()
+    app.include_router(processor_router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/upload",
+        data={"user_id": "user", "uuid": "session"},
+        files=[
+            (
+                "files",
+                ("AX:HUB?구축*.pdf", _make_pdf(), "application/pdf"),
+            )
+        ],
+    )
+
+    assert response.status_code == 200
+    uploaded = response.json()["uploaded_files"][0]
+    assert uploaded["filename"] == "AX_HUB_구축_.pdf"
+    assert uploaded["path"] == "files/AX_HUB_구축_.pdf"
+
+
 def test_upload_unsupported_extension_returns_per_file_failure(
     tmp_path,
     monkeypatch,
@@ -131,6 +205,7 @@ def test_upload_unsupported_extension_returns_per_file_failure(
     assert uploaded["filename"] == "notes.txt"
     assert uploaded["file_type"] == "txt"
     assert uploaded["status"] == "conversion_failed"
+    assert uploaded["path"] is None
     assert "Unsupported file type" in uploaded["error"]
 
 

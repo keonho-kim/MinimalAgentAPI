@@ -56,6 +56,9 @@ export function useWorkspaceFiles({
     refresh,
     status: workspaceStatus(filesQuery, uploadMutation),
     upload,
+    uploadError: uploadMutation.error,
+    uploadPending: uploadMutation.isPending,
+    uploadSelectedFiles: uploadFileList,
   };
 }
 

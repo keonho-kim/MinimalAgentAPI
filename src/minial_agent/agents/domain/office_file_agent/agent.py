@@ -5,7 +5,7 @@ from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain.agents.middleware import HumanInTheLoopMiddleware, ToolCallLimitMiddleware
 from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
@@ -17,7 +17,7 @@ from minial_agent.agents.domain.office_file_agent.subagents import (
     build_pptx_subagent,
     build_xlsx_subagent,
 )
-from minial_agent.agents.domain.office_file_agent.system_prompt import SYSTEM_PROMPT
+from minial_agent.agents.domain.office_file_agent.system_prompt import OFFICE_FILE_AGENT_SYSTEM_PROMPT
 
 FILESYSTEM_HITL_POLICY = {
     "write_file": {
@@ -42,6 +42,16 @@ WORKER_EDIT_TOOLS = {
     "agent_xlsx": "edit_xlsx",
 }
 
+WORKER_TOOL_LIMITS = {
+    "agent_pdf": [
+        {
+            "tool_name": "answer_pdf_question",
+            "run_limit": 1,
+            "exit_behavior": "continue",
+        }
+    ],
+}
+
 
 def build_office_file_subagent(
     *,
@@ -53,7 +63,7 @@ def build_office_file_subagent(
 
     agent = create_agent(
         model=model,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=OFFICE_FILE_AGENT_SYSTEM_PROMPT,
         middleware=[
             FilesystemMiddleware(
                 backend=backend,
@@ -131,15 +141,21 @@ def _compile_worker_subagent(
             ),
         }
 
+    middleware = [
+        FilesystemMiddleware(backend=backend),
+        HumanInTheLoopMiddleware(interrupt_on=interrupt_on),
+    ]
+    middleware.extend(
+        ToolCallLimitMiddleware(**limit)
+        for limit in WORKER_TOOL_LIMITS.get(spec["name"], [])
+    )
+    middleware.append(PatchToolCallsMiddleware())
+
     runnable = create_agent(
         model=model,
         system_prompt=spec["system_prompt"],
         tools=spec["tools"],
-        middleware=[
-            FilesystemMiddleware(backend=backend),
-            HumanInTheLoopMiddleware(interrupt_on=interrupt_on),
-            PatchToolCallsMiddleware(),
-        ],
+        middleware=middleware,
         store=store,
         checkpointer=checkpointer,
         name=spec["name"],

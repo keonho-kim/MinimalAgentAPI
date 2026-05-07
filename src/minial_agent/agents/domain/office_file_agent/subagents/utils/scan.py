@@ -47,8 +47,10 @@ def scan_page(
                 "content": [
                     {"type": "text", "text": prompt.format(question=question)},
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{encoded}"},
+                        "type": "image",
+                        "base64": encoded,
+                        "mime_type": "image/png",
+                        "filename": page_path.name,
                     },
                 ],
             }

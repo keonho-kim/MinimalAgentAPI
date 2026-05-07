@@ -15,6 +15,7 @@ from minial_agent.integrations.upload.storage import (
     reserve_uploads,
     save_upload_file,
 )
+from minial_agent.integrations.upload.visibility import physical_to_public_workspace_path
 from minial_agent.integrations.upload.workspace import ensure_upload_workspace, get_workspace_root
 
 
@@ -90,6 +91,10 @@ class UploadPipeline:
                 filename=item.source_path.name,
                 file_type=item.file_type,
                 status="converted",
+                path=physical_to_public_workspace_path(
+                    workspace.files_dir,
+                    item.source_path,
+                ),
             )
         except Exception as exc:
             error = str(exc)
