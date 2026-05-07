@@ -9,7 +9,7 @@ def emit_workflow_event(
     label: str,
     message: str,
     status: str = "running",
-    summary: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     try:
         dispatch_custom_event(
@@ -20,7 +20,7 @@ def emit_workflow_event(
                 "label": label,
                 "message": message,
                 "status": status,
-                "summary": summary or {},
+                "details": details or {},
             },
         )
     except RuntimeError:
@@ -33,19 +33,19 @@ def emit_read_step(
     step: str,
     message: str,
     status: str = "running",
-    summary: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
-    next_summary = {
+    next_details = {
         "operation": "read",
         "fileType": file_type,
-        **(summary or {}),
+        **(details or {}),
     }
     emit_workflow_event(
         name=f"{file_type}_read_{step}",
         label=f"{file_type.upper()} 읽기",
         message=message,
         status=status,
-        summary=next_summary,
+        details=next_details,
     )
 
 
@@ -55,12 +55,12 @@ def emit_edit_step(
     step: str,
     message: str,
     status: str = "running",
-    summary: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     emit_workflow_event(
         name=f"{file_type}_edit_{step}",
         label=f"{file_type.upper()} 수정",
         message=message,
         status=status,
-        summary=summary,
+        details=details,
     )

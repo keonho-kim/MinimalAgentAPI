@@ -29,7 +29,7 @@ def get_skill_read_context(
     return {
         "context_type": "skill_read",
         "skill_name": skill_name,
-        "summary": {
+        "details": {
             "skillName": skill_name,
             "path": f"/.agents/skills/{skill_name}/SKILL.md",
             "description": f"사용한 스킬: {skill_name}",
@@ -74,7 +74,7 @@ def get_write_file_parent_context(
     return {
         "context_type": "write_file_parent",
         "real_parent_path": parent_path,
-        "summary": {
+        "details": {
             "createsParentDirectory": True,
             "parentPath": virtual_parent_path,
             "description": f"필요한 폴더: {virtual_parent_path}",

@@ -100,6 +100,6 @@ function activity(runId: string, status: "running" | "completed"): AgentUiEvent 
     label: "PDF 읽기",
     message: "AGENT가 PDF 읽기 작업을 시작합니다.",
     status,
-    summary: { filename: "report.pdf" },
+    details: { filename: "report.pdf" },
   };
 }

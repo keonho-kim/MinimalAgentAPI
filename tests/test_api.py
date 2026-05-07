@@ -500,7 +500,7 @@ def test_stream_event_normalizer_adds_model_start_activity() -> None:
             "label": "응답 생성",
             "message": "AGENT가 요청을 분석합니다.",
             "status": "running",
-            "summary": {
+            "details": {
                 "description": "모델 응답을 생성하는 단계입니다.",
                 "node": None,
                 "model": "local-model",
@@ -521,7 +521,7 @@ def test_stream_event_normalizer_converts_custom_workflow_event() -> None:
                 "label": "DOCX 읽기",
                 "message": "DOCX 페이지 4개를 스캔합니다.",
                 "status": "running",
-                "summary": {"path": "report.docx", "description": "4 pages"},
+                "details": {"path": "report.docx", "description": "4 pages"},
             },
         }
     )
@@ -530,7 +530,7 @@ def test_stream_event_normalizer_converts_custom_workflow_event() -> None:
     assert events[0]["type"] == "workflow"
     assert events[0]["label"] == "DOCX 읽기"
     assert events[0]["message"] == "DOCX 페이지 4개를 스캔합니다."
-    assert events[0]["summary"]["description"] == "4 pages"
+    assert events[0]["details"]["description"] == "4 pages"
 
 
 def test_stream_event_normalizer_filters_generic_chain_events() -> None:
@@ -557,7 +557,7 @@ def test_stream_event_normalizer_filters_generic_chain_events() -> None:
     assert visible[0]["kind"] == "activity"
     assert visible[0]["type"] == "subagent"
     assert visible[0]["label"] == "서브에이전트 위임"
-    assert visible[0]["summary"]["delegationRunId"] == "task-run"
+    assert visible[0]["details"]["delegationRunId"] == "task-run"
 
 
 def test_stream_event_normalizer_maps_agent_chain_to_delegation_step() -> None:
@@ -584,7 +584,7 @@ def test_stream_event_normalizer_maps_agent_chain_to_delegation_step() -> None:
     assert events[0]["kind"] == "activity"
     assert events[0]["type"] == "agent_step"
     assert events[0]["label"] == "DOCX 에이전트"
-    assert events[0]["summary"]["delegationRunId"] == "task-run"
+    assert events[0]["details"]["delegationRunId"] == "task-run"
 
 
 def test_stream_event_normalizer_hides_office_worker_chain_wrappers() -> None:
@@ -630,7 +630,7 @@ def test_stream_event_normalizer_extracts_text_and_tool_calls_from_message_objec
     assert events[1]["label"] == "파일 작성"
     assert events[1]["message"] == "AGENT가 파일 작성을 준비합니다."
     assert "input" not in events[1]
-    assert events[1]["summary"]["path"] == "/README.md"
+    assert events[1]["details"]["path"] == "/README.md"
 
 
 def test_stream_event_normalizer_preserves_model_text_without_selector_filtering() -> None:
@@ -844,8 +844,8 @@ def test_stream_event_normalizer_preserves_tool_input_for_end_events() -> None:
         }
     )
 
-    assert events[0]["summary"]["path"] == "/.agents"
-    assert "result" not in events[0]["summary"]
+    assert events[0]["details"]["path"] == "/.agents"
+    assert "result" not in events[0]["details"]
 
 
 def test_stream_event_normalizer_marks_skill_file_reads() -> None:
@@ -872,10 +872,10 @@ def test_stream_event_normalizer_marks_skill_file_reads() -> None:
 
     assert start_events[0]["label"] == "스킬 읽기"
     assert start_events[0]["message"] == "AGENT가 writing-guide 스킬을 읽습니다."
-    assert start_events[0]["summary"]["skillName"] == "writing-guide"
+    assert start_events[0]["details"]["skillName"] == "writing-guide"
     assert end_events[0]["label"] == "스킬 읽기"
     assert end_events[0]["message"] == "AGENT가 writing-guide 스킬을 읽었습니다."
-    assert end_events[0]["summary"]["skillName"] == "writing-guide"
+    assert end_events[0]["details"]["skillName"] == "writing-guide"
 
 
 def test_stream_event_normalizer_keeps_regular_file_reads() -> None:
@@ -890,7 +890,7 @@ def test_stream_event_normalizer_keeps_regular_file_reads() -> None:
 
     assert events[0]["label"] == "파일 읽기"
     assert events[0]["message"] == "AGENT가 파일 읽기를 시작합니다."
-    assert "skillName" not in events[0]["summary"]
+    assert "skillName" not in events[0]["details"]
 
 
 def test_stream_event_normalizer_maps_middleware_display_names() -> None:
@@ -973,7 +973,7 @@ def test_stream_event_normalizer_does_not_parse_raw_tool_message_repr() -> None:
         }
     )
 
-    assert "result" not in events[0]["summary"]
+    assert "result" not in events[0]["details"]
 
 
 def test_stream_event_normalizer_summarizes_tool_message_artifact() -> None:
@@ -989,17 +989,21 @@ def test_stream_event_normalizer_summarizes_tool_message_artifact() -> None:
                     artifact={
                         "filename": "report.pdf",
                         "page_count": 7,
-                        "relevant_pages": [{"page_number": 2}],
+                        "evidence": {"page_2": "matched evidence"},
+                        "scanned_pages": 5,
+                        "is_sufficient": True,
                     },
                 )
             },
         }
     )
 
-    assert events[0]["summary"]["filename"] == "report.pdf"
-    assert events[0]["summary"]["pageCount"] == 7
-    assert events[0]["summary"]["relevantPages"] == [2]
-    assert "result" not in events[0]["summary"]
+    assert events[0]["details"]["filename"] == "report.pdf"
+    assert events[0]["details"]["pageCount"] == 7
+    assert events[0]["details"]["evidence"] == {"page_2": "matched evidence"}
+    assert events[0]["details"]["scannedPages"] == 5
+    assert events[0]["details"]["isSufficient"] is True
+    assert "result" not in events[0]["details"]
 
 
 def test_stream_event_normalizer_summarizes_edit_agent_command_without_raw_messages() -> None:
@@ -1025,12 +1029,12 @@ def test_stream_event_normalizer_summarizes_edit_agent_command_without_raw_messa
     assert events[0]["type"] == "agent_step"
     assert events[0]["label"] == "DOCX 에이전트"
     assert events[0]["message"] == "AGENT가 DOCX 작업을 완료했습니다."
-    assert events[0]["summary"]["fileId"] == "file_001"
-    assert events[0]["summary"]["filename"] == "report.pdf"
-    assert events[0]["summary"]["pageCount"] == 3
-    assert events[0]["summary"]["next"] == "editor_docx"
-    assert "messages" not in events[0]["summary"]
-    assert "result" not in events[0]["summary"]
+    assert events[0]["details"]["fileId"] == "file_001"
+    assert events[0]["details"]["filename"] == "report.pdf"
+    assert events[0]["details"]["pageCount"] == 3
+    assert events[0]["details"]["next"] == "editor_docx"
+    assert "messages" not in events[0]["details"]
+    assert "result" not in events[0]["details"]
 
 
 def test_stream_event_normalizer_maps_edit_agent_names() -> None:
@@ -1046,7 +1050,7 @@ def test_stream_event_normalizer_maps_edit_agent_names() -> None:
     assert events[0]["type"] == "agent_step"
     assert events[0]["label"] == "XLSX 에이전트"
     assert events[0]["message"] == "AGENT가 XLSX 작업을 시작합니다."
-    assert events[0]["summary"]["agentName"] == "editor_xlsx"
+    assert events[0]["details"]["agentName"] == "editor_xlsx"
 
 
 def test_stream_event_normalizer_maps_office_worker_tool_names() -> None:
@@ -1122,8 +1126,8 @@ def test_stream_event_normalizer_marks_write_file_parent_directory_creation(
         start_events[0]["message"]
         == "AGENT가 필요한 폴더를 만들고 파일 작성을 시작합니다."
     )
-    assert start_events[0]["summary"]["createsParentDirectory"] is True
-    assert start_events[0]["summary"]["parentPath"] == "/code"
+    assert start_events[0]["details"]["createsParentDirectory"] is True
+    assert start_events[0]["details"]["parentPath"] == "/code"
 
     (tmp_path / "code").mkdir()
     end_events = normalizer.normalize(
@@ -1140,8 +1144,8 @@ def test_stream_event_normalizer_marks_write_file_parent_directory_creation(
         end_events[0]["message"]
         == "AGENT가 필요한 폴더를 만들고 파일 작성을 완료했습니다."
     )
-    assert end_events[0]["summary"]["parentPath"] == "/code"
-    assert end_events[0]["summary"]["parentDirectoryCreated"] is True
+    assert end_events[0]["details"]["parentPath"] == "/code"
+    assert end_events[0]["details"]["parentDirectoryCreated"] is True
 
 
 def test_stream_event_normalizer_does_not_mark_root_or_existing_write_parent(
@@ -1168,9 +1172,9 @@ def test_stream_event_normalizer_does_not_mark_root_or_existing_write_parent(
     )
 
     assert root_file_events[0]["message"] == "AGENT가 파일 작성을 시작합니다."
-    assert "createsParentDirectory" not in root_file_events[0]["summary"]
+    assert "createsParentDirectory" not in root_file_events[0]["details"]
     assert existing_parent_events[0]["message"] == "AGENT가 파일 작성을 시작합니다."
-    assert "createsParentDirectory" not in existing_parent_events[0]["summary"]
+    assert "createsParentDirectory" not in existing_parent_events[0]["details"]
 
 
 def test_stream_event_normalizer_ignores_write_file_paths_outside_workspace(
@@ -1188,7 +1192,7 @@ def test_stream_event_normalizer_ignores_write_file_paths_outside_workspace(
     )
 
     assert events[0]["message"] == "AGENT가 파일 작성을 시작합니다."
-    assert "createsParentDirectory" not in events[0]["summary"]
+    assert "createsParentDirectory" not in events[0]["details"]
 
 
 def test_chat_service_streams_langchain_message_object_events() -> None:

@@ -185,10 +185,11 @@ def test_workflow_result_does_not_expose_internal_paths(tmp_path) -> None:
     workflow = build_docx_read_workflow(
         workspace,
         page_scanner=lambda path, _question: (
-            scanned_pages.append(path.name) or "1; matched page"
+            scanned_pages.append(path.name) or "matched page"
             if path.name == "page_002.png"
-            else scanned_pages.append(path.name) or "0; no_evidence"
+            else scanned_pages.append(path.name) or "None"
         ),
+        evidence_judge=lambda _question, _evidence: True,
     )
     result = workflow.invoke(
         {
@@ -196,16 +197,99 @@ def test_workflow_result_does_not_expose_internal_paths(tmp_path) -> None:
             "question": "summary?",
         }
     )
-    payload = json.loads(result["result"])
-
-    assert payload["relevant_page_count"] == 1
-    assert payload["scanned_pages"] == 3
+    assert result["result"] == "page_2: matched page"
+    assert result["evidence"] == {"page_2": "matched page"}
+    assert result["scanned_pages"] == 3
+    assert result["is_sufficient"] is True
     assert set(scanned_pages) == {"page_001.png", "page_002.png", "page_003.png"}
-    assert payload["relevant_pages"][0]["page_number"] == 2
-    assert payload["relevant_pages"][0]["evidence"] == "matched page"
-    assert payload["answer"].startswith("관련 근거는 report.docx의 2페이지")
     assert ".converted" not in result["result"]
     assert ".registry" not in result["result"]
+
+
+def test_workflow_stops_after_sufficient_page_scan_batch(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_PAGE_SCAN_BATCH_SIZE", "10")
+    workspace = ensure_upload_workspace(tmp_path)
+    _register_converted_file(
+        workspace,
+        filename="report.docx",
+        file_type="docx",
+        page_count=25,
+    )
+    scanned_pages = []
+
+    def page_scanner(path, _question):
+        scanned_pages.append(path.name)
+        return "matched page" if path.name == "page_012.png" else "None"
+
+    workflow = build_docx_read_workflow(
+        workspace,
+        page_scanner=page_scanner,
+        evidence_judge=lambda _question, _evidence: True,
+    )
+
+    result = workflow.invoke({"file_ref": "file_001", "question": "summary?"})
+
+    assert result["result"] == "page_12: matched page"
+    assert result["scanned_pages"] == 20
+    assert "page_021.png" not in scanned_pages
+
+
+def test_workflow_uses_configured_page_scan_batch_size(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_PAGE_SCAN_BATCH_SIZE", "5")
+    workspace = ensure_upload_workspace(tmp_path)
+    _register_converted_file(
+        workspace,
+        filename="report.docx",
+        file_type="docx",
+        page_count=12,
+    )
+    scanned_pages = []
+
+    def page_scanner(path, _question):
+        scanned_pages.append(path.name)
+        return "matched page" if path.name == "page_007.png" else "None"
+
+    workflow = build_docx_read_workflow(
+        workspace,
+        page_scanner=page_scanner,
+        evidence_judge=lambda _question, _evidence: True,
+    )
+
+    result = workflow.invoke({"file_ref": "file_001", "question": "summary?"})
+
+    assert result["result"] == "page_7: matched page"
+    assert result["scanned_pages"] == 10
+    assert "page_011.png" not in scanned_pages
+
+
+def test_workflow_continues_when_page_evidence_is_not_sufficient(tmp_path) -> None:
+    workspace = ensure_upload_workspace(tmp_path)
+    _register_converted_file(
+        workspace,
+        filename="report.docx",
+        file_type="docx",
+        page_count=25,
+    )
+    scanned_pages = []
+
+    def page_scanner(path, _question):
+        scanned_pages.append(path.name)
+        if path.name in {"page_012.png", "page_023.png"}:
+            return f"matched {path.name}"
+        return "None"
+
+    workflow = build_docx_read_workflow(
+        workspace,
+        page_scanner=page_scanner,
+        evidence_judge=lambda _question, evidence: len(evidence) >= 2,
+    )
+
+    result = workflow.invoke({"file_ref": "file_001", "question": "summary?"})
+
+    assert result["result"] == (
+        "page_12: matched page_012.png\npage_23: matched page_023.png"
+    )
+    assert result["scanned_pages"] == 25
 
 
 def test_scan_page_uses_standard_image_block_with_filename(
@@ -217,7 +301,7 @@ def test_scan_page_uses_standard_image_block_with_filename(
     class FakeModel:
         def invoke(self, payload):
             captured["payload"] = payload
-            return "0; no_evidence"
+            return "None"
 
     def fake_llm_client(*, disable_streaming=False):
         assert disable_streaming is True
@@ -235,7 +319,7 @@ def test_scan_page_uses_standard_image_block_with_filename(
 
     content = captured["payload"][0]["content"]
     image_block = content[1]
-    assert result == "0; no_evidence"
+    assert result == "None"
     assert image_block == {
         "type": "image",
         "base64": base64.b64encode(b"png-bytes").decode("ascii"),
@@ -245,22 +329,19 @@ def test_scan_page_uses_standard_image_block_with_filename(
     assert "image_url" not in image_block
 
 
-def test_workflow_rejects_malformed_page_scan(tmp_path) -> None:
+def test_workflow_accepts_non_none_page_scan_as_evidence(tmp_path) -> None:
     workspace = ensure_upload_workspace(tmp_path)
     _register_converted_file(workspace, filename="report.docx", file_type="docx")
 
     graph = build_docx_read_workflow(
         workspace,
         page_scanner=lambda _path, _question: "invalid",
+        evidence_judge=lambda _question, _evidence: True,
     )
 
-    with pytest.raises(ValueError, match="Invalid VLM scan output"):
-        graph.invoke(
-            {
-                "file_ref": "file_001",
-                "question": "summary?",
-            }
-        )
+    result = graph.invoke({"file_ref": "file_001", "question": "summary?"})
+
+    assert result["result"] == "page_1: invalid"
 
 
 def test_workflow_edits_xlsx_and_registers_new_file(

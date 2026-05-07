@@ -43,7 +43,7 @@ def _resolve_xlsx_artifact(
         file_type="xlsx",
         step="resolve",
         message="XLSX 파일을 확인합니다.",
-        summary={"path": state["file_ref"]},
+        details={"path": state["file_ref"]},
     )
     artifact = resolve_xlsx_artifact(workspace, state["file_ref"])
     emit_read_step(
@@ -51,7 +51,7 @@ def _resolve_xlsx_artifact(
         step="resolve",
         message="XLSX 파일 확인을 완료했습니다.",
         status="completed",
-        summary={"path": artifact.visible_name},
+        details={"path": artifact.visible_name},
     )
     return {"artifact": artifact}
 
@@ -61,7 +61,7 @@ def _inspect_workbook(state: XlsxReadState) -> XlsxReadState:
         file_type="xlsx",
         step="workbook",
         message="XLSX 시트 구성을 확인합니다.",
-        summary={"path": state["artifact"].visible_name},
+        details={"path": state["artifact"].visible_name},
     )
     workbook = inspect_workbook(state["artifact"])
     emit_read_step(
@@ -69,7 +69,7 @@ def _inspect_workbook(state: XlsxReadState) -> XlsxReadState:
         step="workbook",
         message=f"XLSX 시트 {workbook.get('sheet_count', 0)}개를 확인했습니다.",
         status="completed",
-        summary={"path": state["artifact"].visible_name, "result": f"{workbook.get('sheet_count', 0)} sheets"},
+        details={"path": state["artifact"].visible_name, "result": f"{workbook.get('sheet_count', 0)} sheets"},
     )
     return {"workbook": workbook}
 
@@ -90,7 +90,7 @@ def _read_question_range(state: XlsxReadState) -> XlsxReadState:
         step="range",
         message="XLSX 범위 확인을 완료했습니다.",
         status="completed",
-        summary={"result": "range loaded" if selected_range else "no explicit range"},
+        details={"result": "range loaded" if selected_range else "no explicit range"},
     )
     return {"selected_range": selected_range}
 
@@ -117,7 +117,7 @@ def _build_xlsx_answer(state: XlsxReadState) -> XlsxReadState:
         step="answer",
         message="XLSX 답변 근거 정리를 완료했습니다.",
         status="completed",
-        summary={"result": f"{len(result.get('workbook', {}).get('sheets', []))} sheets"},
+        details={"result": f"{len(result.get('workbook', {}).get('sheets', []))} sheets"},
     )
     return {
         "answer_payload": result,

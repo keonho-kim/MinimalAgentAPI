@@ -13,14 +13,14 @@ from minial_agent.api.agent.events.activity.context import (
     get_write_file_parent_context,
     skill_read_message,
 )
-from minial_agent.api.agent.events.activity.display import activity_display
-from minial_agent.api.agent.events.activity.summary import (
-    event_metadata_summary,
+from minial_agent.api.agent.events.activity.details import (
+    activity_details,
+    event_metadata_details,
     output_looks_error,
-    public_summary,
+    public_details,
     string_value,
-    summarize_activity,
 )
+from minial_agent.api.agent.events.activity.display import activity_display
 from minial_agent.api.agent.events.serialization import object_or_empty
 
 
@@ -50,7 +50,7 @@ class ActivityEventBuilder:
         ):
             input_value = self._activity_inputs[activity_id]
 
-        summary = summarize_activity(name, input_value, output)
+        details = activity_details(name, input_value, output)
         folder_context = get_write_file_parent_context(
             self._workspace_root,
             name,
@@ -74,15 +74,15 @@ class ActivityEventBuilder:
                 skill_context = stored_context
 
         if folder_context:
-            summary.update(folder_context["summary"])
+            details.update(folder_context["details"])
             if status == "running" and isinstance(activity_id, str):
                 self._activity_contexts[activity_id] = folder_context
         if skill_context:
-            summary.update(skill_context["summary"])
+            details.update(skill_context["details"])
             if status == "running" and isinstance(activity_id, str):
                 self._activity_contexts[activity_id] = skill_context
 
-        label, message = activity_display(name, status, summary)
+        label, message = activity_display(name, status, details)
         if skill_context:
             label = "스킬 읽기"
             message = skill_read_message(skill_context["skill_name"], status)
@@ -92,14 +92,14 @@ class ActivityEventBuilder:
             if folder_context["real_parent_path"].exists() and not output_looks_error(
                 output
             ):
-                summary["parentDirectoryCreated"] = True
+                details["parentDirectoryCreated"] = True
                 message = WRITE_FILE_PARENT_COMPLETED_MESSAGE
         elif folder_context and status == "error":
-            summary["parentDirectoryCreated"] = False
+            details["parentDirectoryCreated"] = False
 
         if name in HITL_TOOL_NAMES and status in {"pending", "running"}:
-            summary["requiresApproval"] = True
-            summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
+            details["requiresApproval"] = True
+            details.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
 
         if isinstance(activity_id, str) and status in {"pending", "running"}:
             if input_value is not None:
@@ -120,7 +120,7 @@ class ActivityEventBuilder:
             "label": label,
             "message": message,
             "status": status,
-            "summary": summary,
+            "details": details,
         }
 
     def create_model(self, raw: dict[str, Any], status: str) -> dict[str, Any]:
@@ -140,7 +140,7 @@ class ActivityEventBuilder:
                 else "AGENT가 답변을 정리합니다."
             ),
             "status": status,
-            "summary": event_metadata_summary(raw),
+            "details": event_metadata_details(raw),
         }
 
     def create_intermediate_model_output(
@@ -160,9 +160,9 @@ class ActivityEventBuilder:
             "label": "중간 응답",
             "message": "하위 에이전트의 중간 응답을 접어 보관했습니다.",
             "status": "completed",
-            "summary": public_summary(
+            "details": public_details(
                 {
-                    **event_metadata_summary(raw),
+                    **event_metadata_details(raw),
                     "intermediateText": text,
                 }
             ),
@@ -170,7 +170,7 @@ class ActivityEventBuilder:
 
     def create_custom(self, raw: dict[str, Any]) -> dict[str, Any]:
         data = object_or_empty(raw.get("data"))
-        summary = object_or_empty(data.get("summary"))
+        details = object_or_empty(data.get("details"))
         name = str(data.get("name") or raw.get("name") or "custom")
         status = str(data.get("status") or "running")
         label = str(data.get("label") or "작업 진행")
@@ -192,7 +192,7 @@ class ActivityEventBuilder:
             "label": label,
             "message": message,
             "status": status,
-            "summary": public_summary(summary),
+            "details": public_details(details),
         }
 
     def create_tool_intent(
@@ -205,16 +205,16 @@ class ActivityEventBuilder:
         name = tool_call.get("name") or "tool"
         input_value = tool_call.get("args")
         status = "pending"
-        summary = summarize_activity(name, input_value)
+        details = activity_details(name, input_value)
         skill_context = get_skill_read_context(name, input_value)
-        label, message = activity_display(name, status, summary)
+        label, message = activity_display(name, status, details)
         if skill_context:
-            summary.update(skill_context["summary"])
+            details.update(skill_context["details"])
             label = "스킬 읽기"
             message = skill_read_message(skill_context["skill_name"], status)
         if name in HITL_TOOL_NAMES:
-            summary["requiresApproval"] = True
-            summary.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
+            details["requiresApproval"] = True
+            details.setdefault("description", "승인이 필요한 파일 변경 작업입니다.")
 
         return {
             "kind": "activity",
@@ -227,7 +227,7 @@ class ActivityEventBuilder:
             "label": label,
             "message": message,
             "status": status,
-            "summary": summary,
+            "details": details,
         }
 
     def normalize_visible_chain(
@@ -276,8 +276,8 @@ class ActivityEventBuilder:
         )
         delegation_run_id = string_value(activity.get("runId"))
         if delegation_run_id:
-            activity["summary"] = {
-                **object_or_empty(activity.get("summary")),
+            activity["details"] = {
+                **object_or_empty(activity.get("details")),
                 "delegationRunId": delegation_run_id,
             }
             if status == "running":
@@ -302,8 +302,8 @@ class ActivityEventBuilder:
         )
         delegation_run_id = self._delegation_run_id(raw.get("parent_ids"))
         if delegation_run_id:
-            activity["summary"] = {
-                **object_or_empty(activity.get("summary")),
+            activity["details"] = {
+                **object_or_empty(activity.get("details")),
                 "delegationRunId": delegation_run_id,
             }
 

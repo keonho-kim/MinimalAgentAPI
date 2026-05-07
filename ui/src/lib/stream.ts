@@ -24,7 +24,7 @@ export type AgentUiEvent =
       status?: string;
       input?: unknown;
       output?: unknown;
-      summary?: unknown;
+      details?: unknown;
     };
 
 export function openChatEventSource(

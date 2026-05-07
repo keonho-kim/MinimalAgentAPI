@@ -19,6 +19,12 @@ def set_config(file_name: str = "env.backend.toml") -> None:
         # LOAD FS CONFIG
         _fs_config = data.get("fs")
         os.environ["AGENT_RUNTIME_ROOT_DIR"] = str(_fs_config.get("workspace"))
+        os.environ["AGENT_PAGE_SCAN_BATCH_SIZE"] = str(
+            _positive_int(
+                _fs_config.get("page_scan_batch_size", 10),
+                name="fs.page_scan_batch_size",
+            )
+        )
 
         # LOAD LLM CONFIG
         _llm_config = data.get("llm", {})
@@ -60,3 +66,13 @@ def _find_config_file(file_name: str) -> Path:
 
     searched = ", ".join(str(base_dir / file_name) for base_dir in candidates)
     raise FileNotFoundError(f"Could not find {file_name}. Searched: {searched}")
+
+
+def _positive_int(value: object, *, name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer.") from exc
+    if parsed < 1:
+        raise ValueError(f"{name} must be a positive integer.")
+    return parsed

@@ -2,7 +2,7 @@ from minial_agent.common.utils.file_registry import resolve_artifact
 from minial_agent.integrations.upload.models import UploadWorkspace
 from minial_agent.integrations.upload.resolver import ResolvedUploadArtifact
 
-from minial_agent.agents.utils.scan import PageScanner, build_page_answer, scan_artifact_pages
+from minial_agent.agents.utils.scan import EvidenceJudge, PageScanner, scan_artifact_pages
 from minial_agent.agents.tools.read_documents.hwpx.prompts import PAGE_SCAN_PROMPT
 
 
@@ -22,17 +22,12 @@ def scan_hwpx_pages(
     *,
     question: str,
     page_scanner: PageScanner | None = None,
-) -> tuple[list[dict], int]:
+    evidence_judge: EvidenceJudge | None = None,
+) -> tuple[dict[str, str], int, bool]:
     return scan_artifact_pages(
         artifact=artifact,
         question=question,
         prompt=PAGE_SCAN_PROMPT,
         page_scanner=page_scanner,
-    )
-
-
-def build_hwpx_answer(relevant_pages: list[dict], scanned_pages: int) -> dict:
-    return build_page_answer(
-        relevant_pages=relevant_pages,
-        scanned_pages=scanned_pages,
+        evidence_judge=evidence_judge,
     )

@@ -59,7 +59,7 @@ def _resolve_hwpx_artifact(
         file_type="hwpx",
         step="resolve",
         message="수정할 HWPX 파일을 확인합니다.",
-        summary={"path": state["file_ref"]},
+        details={"path": state["file_ref"]},
     )
     artifact = resolve_hwpx_artifact(workspace, state["file_ref"])
     emit_edit_step(
@@ -67,7 +67,7 @@ def _resolve_hwpx_artifact(
         step="resolve",
         message="HWPX 파일 확인을 완료했습니다.",
         status="completed",
-        summary={"path": artifact.visible_name},
+        details={"path": artifact.visible_name},
     )
     return {"artifact": artifact}
 
@@ -82,7 +82,7 @@ def _build_hwpx_edit_spec(
         file_type="hwpx",
         step="spec",
         message="HWPX 수정 방법을 정리합니다.",
-        summary={"path": state["artifact"].visible_name},
+        details={"path": state["artifact"].visible_name},
     )
     edit_spec = build_hwpx_edit_spec(
         instruction=state.get("instruction", ""),
@@ -94,7 +94,7 @@ def _build_hwpx_edit_spec(
         step="spec",
         message=f"HWPX 수정 작업을 {edit_spec['operation']} 방식으로 준비했습니다.",
         status="completed",
-        summary={"path": state["artifact"].visible_name, "description": str(edit_spec["operation"])},
+        details={"path": state["artifact"].visible_name, "description": str(edit_spec["operation"])},
     )
     return {"edit_spec": edit_spec}
 
@@ -108,7 +108,7 @@ def _apply_hwpx_edit_spec(
         file_type="hwpx",
         step="apply",
         message="HWPX 수정 내용을 파일에 적용합니다.",
-        summary={"path": state["artifact"].visible_name},
+        details={"path": state["artifact"].visible_name},
     )
     edited_path = _edited_path(
         workspace=workspace,
@@ -125,7 +125,7 @@ def _apply_hwpx_edit_spec(
         step="apply",
         message=f"HWPX 수정 적용을 완료했습니다. 변경 항목 {len(changed_items)}개를 만들었습니다.",
         status="completed",
-        summary={"path": state["artifact"].visible_name, "result": f"{len(changed_items)} changes"},
+        details={"path": state["artifact"].visible_name, "result": f"{len(changed_items)} changes"},
     )
     return {
         "edited_path": edited_path,
@@ -142,7 +142,7 @@ def _register_hwpx_edit_result(
         file_type="hwpx",
         step="register",
         message="HWPX 수정본을 등록하고 다운로드 정보를 준비합니다.",
-        summary={"path": state["artifact"].visible_name},
+        details={"path": state["artifact"].visible_name},
     )
     result = register_hwpx_edit_result(
         workspace=workspace,
@@ -156,7 +156,7 @@ def _register_hwpx_edit_result(
         step="register",
         message="HWPX 수정본 등록을 완료했습니다.",
         status="completed",
-        summary={"path": result.get("edited_file", {}).get("filename"), "result": result.get("edited_file", {}).get("download_url")},
+        details={"path": result.get("edited_file", {}).get("filename"), "result": result.get("edited_file", {}).get("download_url")},
     )
     return {
         "result_payload": result,

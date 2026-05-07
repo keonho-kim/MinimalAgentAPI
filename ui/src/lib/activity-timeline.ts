@@ -45,19 +45,19 @@ export function activityTraceEntry(event: ActivityEvent): ActivityTraceEntry | n
     return null;
   }
 
-  const summary = objectSummary(event.summary);
+  const details = objectDetails(event.details);
   if (event.type === "model_output") {
-    const detail = intermediateDetail(summary);
+    const detail = intermediateDetail(details);
     return detail
       ? entry(event, "intermediate", "중간 응답", detail, detail)
       : null;
   }
 
-  const category = activityCategory(event, summary);
-  const target = activityTarget(event, summary);
+  const category = activityCategory(event, details);
+  const target = activityTarget(event, details);
   const label = activityLabel(event, category);
   const detail = activityDetail(event, category, target);
-  const key = activityKey(event, category, target, summary);
+  const key = activityKey(event, category, target, details);
   const id = activityId(event, key);
 
   return {
@@ -171,10 +171,10 @@ function activityCounts(entries: ActivityTraceEntry[]) {
 
 function activityCategory(
   event: ActivityEvent,
-  summary: Record<string, unknown>,
+  details: Record<string, unknown>,
 ): ActivityTraceCategory {
   const name = event.name ?? "";
-  if (isSkillsActivity(event, summary)) {
+  if (isSkillsActivity(event, details)) {
     return "skills";
   }
   if (isSubagentActivity(event)) {
@@ -201,24 +201,24 @@ function activityCategory(
   return "other";
 }
 
-function activityTarget(event: ActivityEvent, summary: Record<string, unknown>) {
+function activityTarget(event: ActivityEvent, details: Record<string, unknown>) {
   if (event.name === "grep") {
-    return stringValue(summary.query) || stringValue(summary.pattern);
+    return stringValue(details.query) || stringValue(details.pattern);
   }
   if (event.name === "execute") {
     return (
-      stringValue(summary.command) ||
-      stringValue(summary.description) ||
-      stringValue(summary.result)
+      stringValue(details.command) ||
+      stringValue(details.description) ||
+      stringValue(details.result)
     );
   }
   return (
-    editedFileTarget(summary.editedFile) ||
-    stringValue(summary.filename) ||
-    stringValue(summary.path) ||
-    stringValue(summary.fileId) ||
-    stringValue(summary.query) ||
-    stringValue(summary.description)
+    editedFileTarget(details.editedFile) ||
+    stringValue(details.filename) ||
+    stringValue(details.path) ||
+    stringValue(details.fileId) ||
+    stringValue(details.query) ||
+    stringValue(details.description)
   );
 }
 
@@ -269,14 +269,14 @@ function activityKey(
   event: ActivityEvent,
   category: ActivityTraceCategory,
   target: string | null,
-  summary: Record<string, unknown>,
+  details: Record<string, unknown>,
 ) {
   if (category === "subagent") {
     return [
       "subagent",
-      stringValue(summary.delegationRunId) ||
+      stringValue(details.delegationRunId) ||
         legacyDelegationRunId(event) ||
-        stringValue(summary.agentName) ||
+        stringValue(details.agentName) ||
         target ||
         "task",
     ].join(":");
@@ -386,24 +386,24 @@ function entry(
   };
 }
 
-function intermediateDetail(summary: Record<string, unknown>) {
+function intermediateDetail(details: Record<string, unknown>) {
   const text =
-    stringValue(summary.intermediateText) ||
-    stringArray(summary.intermediateTexts).join("\n\n");
+    stringValue(details.intermediateText) ||
+    stringArray(details.intermediateTexts).join("\n\n");
   return text || null;
 }
 
 function isSkillsActivity(
   event: ActivityEvent,
-  summary: Record<string, unknown>,
+  details: Record<string, unknown>,
 ) {
   const name = event.name ?? "";
   return (
     name === "workspace_skills" ||
     name === "SkillsMiddleware" ||
     name.startsWith("SkillsMiddleware.") ||
-    Array.isArray(summary.skills) ||
-    stringValue(summary.skillName) !== null
+    Array.isArray(details.skills) ||
+    stringValue(details.skillName) !== null
   );
 }
 
@@ -428,7 +428,7 @@ function fallbackDetail(event: ActivityEvent) {
   return event.message || event.label || event.name || "Agent activity";
 }
 
-function objectSummary(value: unknown): Record<string, unknown> {
+function objectDetails(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};

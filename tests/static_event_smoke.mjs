@@ -139,7 +139,7 @@ assert.equal(toolIntentEvents[0].kind, "activity");
 assert.equal(toolIntentEvents[0].status, "pending");
 assert.equal(toolIntentEvents[0].label, "write_file");
 assert.deepEqual(toolIntentEvents[0].input, { file_path: "/README.md" });
-assert.equal(toolIntentEvents[0].summary.path, "/README.md");
+assert.equal(toolIntentEvents[0].details.path, "/README.md");
 assert.equal("raw" in toolIntentEvents[0], false);
 assert.equal("sourcePath" in toolIntentEvents[0], false);
 
@@ -158,7 +158,7 @@ assert.equal(toolStartEvents[0].status, "running");
 assert.equal(toolStartEvents[0].id, "tool-run");
 assert.deepEqual(toolStartEvents[0].parentIds, ["model-run"]);
 assert.equal(toolStartEvents[0].message, "AGENT가 write_file 작업을 시작합니다.");
-assert.equal(toolStartEvents[0].summary.path, "/README.md");
+assert.equal(toolStartEvents[0].details.path, "/README.md");
 
 const toolEndEvents = normalizeStreamEvent({
   event: "on_tool_end",

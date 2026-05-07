@@ -177,6 +177,7 @@ mount_ui=false
 
 [fs]
 workspace="./tmpWorkspace/"
+page_scan_batch_size=7
 
 [llm]
 provider="google"
@@ -193,10 +194,12 @@ top_p=0.9
     )
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AGENT_PAGE_SCAN_BATCH_SIZE", raising=False)
 
     set_config("env.backend.toml")
 
     assert os.environ["MINIAL_AGENT_MOUNT_UI"] == "false"
+    assert os.environ["AGENT_PAGE_SCAN_BATCH_SIZE"] == "7"
     assert os.environ["LLM_PROVIDER"] == "google"
     assert os.environ["LLM_BASE_URL"] == ""
     assert os.environ["LLM_MODEL_NAME"] == "gemini-2.5-flash"

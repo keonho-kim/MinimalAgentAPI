@@ -80,13 +80,13 @@ describe("activity timeline", () => {
 
   test("summarizes search, list, command, file, and subagent activity", () => {
     const entries = [
-      trace(activity({ name: "grep", summary: { query: "agent" } })),
-      trace(activity({ name: "ls", summary: { path: "/office_file_agent" } })),
-      trace(activity({ name: "execute", summary: { description: "git status --short" } })),
-      trace(activity({ name: "write_file", summary: { filename: "report.md" } })),
-      trace(activity({ name: "edit_file", summary: { filename: "agent.py" } })),
-      trace(activity({ name: "read_file", summary: { filename: "system_prompt.py" } })),
-      trace(activity({ name: "task", summary: { agentName: "agent_docx" } })),
+      trace(activity({ name: "grep", details: { query: "agent" } })),
+      trace(activity({ name: "ls", details: { path: "/office_file_agent" } })),
+      trace(activity({ name: "execute", details: { description: "git status --short" } })),
+      trace(activity({ name: "write_file", details: { filename: "report.md" } })),
+      trace(activity({ name: "edit_file", details: { filename: "agent.py" } })),
+      trace(activity({ name: "read_file", details: { filename: "system_prompt.py" } })),
+      trace(activity({ name: "task", details: { agentName: "agent_docx" } })),
     ];
 
     expect(activityTimelineSummary(entries)).toBe(
@@ -144,7 +144,7 @@ function activity(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
     label: "파일 읽기",
     message: "AGENT가 파일 읽기를 시작합니다.",
     status: "running",
-    summary: { filename: "agent.py" },
+    details: { filename: "agent.py" },
     ...overrides,
   };
 }

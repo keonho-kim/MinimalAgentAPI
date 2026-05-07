@@ -1,4 +1,5 @@
 import base64
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
@@ -10,6 +11,22 @@ from minial_agent.agents.utils.runtime import response_content
 
 
 PageScanner = Callable[[Path, str], str]
+EvidenceJudge = Callable[[str, dict[str, str]], bool]
+
+PAGE_SCAN_BATCH_SIZE = 10
+
+_EVIDENCE_SUFFICIENCY_PROMPT = """You are deciding whether the collected page evidence is enough to answer the user's question.
+
+Return exactly `1` if the evidence is sufficient.
+Return exactly `0` if more pages should be scanned.
+Do not return JSON, markdown, or explanation.
+
+Question:
+{question}
+
+Evidence:
+{evidence}
+"""
 
 
 def build_page_jobs(
@@ -59,14 +76,32 @@ def scan_page(
     return response_content(response)
 
 
-def parse_page_scan(raw_scan: str) -> tuple[bool, str]:
-    normalized = raw_scan.strip()
-    if "\n" in normalized or "\r" in normalized:
-        raise ValueError("Invalid VLM scan output. Expected one line.")
-    parts = [part.strip() for part in normalized.split(";", 1)]
-    if len(parts) != 2 or parts[0] not in {"0", "1"}:
-        raise ValueError("Invalid VLM scan output. Expected `<0/1>; <evidence>`.")
-    return parts[0] == "1", parts[1]
+def parse_page_answer(raw_scan: Any) -> str | None:
+    normalized = raw_scan.strip() if isinstance(raw_scan, str) else str(raw_scan).strip()
+    if not normalized or normalized.lower() == "none":
+        return None
+    return normalized
+
+
+def judge_evidence_sufficiency(question: str, evidence: dict[str, str]) -> bool:
+    if not evidence:
+        return False
+
+    response = llm_client(disable_streaming=True).invoke(
+        [
+            {
+                "role": "user",
+                "content": _EVIDENCE_SUFFICIENCY_PROMPT.format(
+                    question=question,
+                    evidence=build_evidence_result(evidence),
+                ),
+            }
+        ]
+    )
+    verdict = response_content(response).strip()
+    if verdict not in {"0", "1"}:
+        raise ValueError("Invalid VLM sufficiency output. Expected `0` or `1`.")
+    return verdict == "1"
 
 
 def scan_artifact_pages(
@@ -76,78 +111,71 @@ def scan_artifact_pages(
     prompt: str,
     pages: list[dict[str, Any]] | None = None,
     page_scanner: PageScanner | None = None,
-) -> tuple[list[dict], int]:
+    evidence_judge: EvidenceJudge | None = None,
+    batch_size: int | None = None,
+) -> tuple[dict[str, str], int, bool]:
     source_pages = pages if pages is not None else artifact.manifest.get("pages", [])
     if not isinstance(source_pages, list):
         source_pages = []
 
     page_jobs = build_page_jobs(artifact=artifact, pages=source_pages)
-    relevant_pages = []
-    with ThreadPoolExecutor(max_workers=min(8, max(len(page_jobs), 1))) as executor:
-        raw_scans = list(
-            executor.map(
-                lambda job: (
-                    page_scanner(job["image_path"], question)
-                    if page_scanner
-                    else scan_page(
-                        page_path=job["image_path"],
-                        question=question,
-                        prompt=prompt,
-                    )
-                ),
-                page_jobs,
+    batch_size = batch_size or page_scan_batch_size()
+    if batch_size < 1:
+        raise ValueError("Page scan batch size must be at least 1.")
+
+    evidence: dict[str, str] = {}
+    scanned_pages = 0
+    for start in range(0, len(page_jobs), batch_size):
+        batch = page_jobs[start : start + batch_size]
+        with ThreadPoolExecutor(max_workers=min(8, max(len(batch), 1))) as executor:
+            raw_scans = list(
+                executor.map(
+                    lambda job: (
+                        page_scanner(job["image_path"], question)
+                        if page_scanner
+                        else scan_page(
+                            page_path=job["image_path"],
+                            question=question,
+                            prompt=prompt,
+                        )
+                    ),
+                    batch,
+                )
             )
-        )
 
-    for page_job, raw_scan in zip(page_jobs, raw_scans, strict=True):
-        raw_scan = (
-            raw_scan.strip()
-            if isinstance(raw_scan, str)
-            else str(raw_scan).strip()
-        )
-        is_relevant, evidence = parse_page_scan(raw_scan)
-        if not is_relevant:
-            continue
-        relevant_pages.append(
-            {
-                "file_id": page_job["file_id"],
-                "source_filename": page_job["source_filename"],
-                "page_number": page_job["page_number"],
-                "filename": page_job["filename"],
-                "is_relevant": 1,
-                "evidence": evidence,
-            }
-        )
-    return relevant_pages, len(page_jobs)
+        scanned_pages += len(batch)
+        for page_job, raw_scan in zip(batch, raw_scans, strict=True):
+            answer = parse_page_answer(raw_scan)
+            if answer is None:
+                continue
+            evidence[f"page_{page_job['page_number']}"] = answer
+
+        if evidence and (
+            evidence_judge(question, evidence)
+            if evidence_judge
+            else judge_evidence_sufficiency(question, evidence)
+        ):
+            return evidence, scanned_pages, True
+
+    return evidence, scanned_pages, False
 
 
-def build_page_answer(
-    *,
-    relevant_pages: list[dict],
-    scanned_pages: int,
-) -> dict:
-    answer = build_evidence_answer(relevant_pages)
-    return {
-        "answer": answer,
-        "relevant_pages": relevant_pages,
-        "scanned_pages": scanned_pages,
-        "relevant_page_count": len(relevant_pages),
-    }
+def build_evidence_result(evidence: dict[str, str]) -> str:
+    if not evidence:
+        return "None"
+    return "\n".join(
+        f"{page}: {answer}"
+        for page, answer in evidence.items()
+        if str(answer).strip()
+    ) or "None"
 
 
-def build_evidence_answer(relevant_pages: list[dict]) -> str:
-    if not relevant_pages:
-        return "질문과 직접 관련된 페이지를 찾지 못했습니다."
-
-    locations = ", ".join(
-        f"{page['source_filename']}의 {page['page_number']}페이지"
-        for page in relevant_pages
-    )
-    evidence = " ".join(
-        str(page.get("evidence", "")).strip()
-        for page in relevant_pages[:3]
-        if str(page.get("evidence", "")).strip()
-    )
-    if evidence:
-        return f"관련 근거는 {locations}에서 확인됩니다. 주요 근거: {evidence}"
-    return f"관련 근거는 {locations}에서 확인됩니다."
+def page_scan_batch_size() -> int:
+    raw_value = os.getenv("AGENT_PAGE_SCAN_BATCH_SIZE", str(PAGE_SCAN_BATCH_SIZE))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError("AGENT_PAGE_SCAN_BATCH_SIZE must be a positive integer.") from exc
+    if value < 1:
+        raise ValueError("AGENT_PAGE_SCAN_BATCH_SIZE must be a positive integer.")
+    return value
