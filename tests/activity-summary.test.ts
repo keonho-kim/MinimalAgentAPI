@@ -49,7 +49,7 @@ test("drops raw runtime object details", () => {
   expect(
     activityDetailLines({
       result:
-        "Command(update={'messages': [AIMessage(content='raw')]}, goto='agent_pdf')",
+        "Command(update={'messages': [AIMessage(content='raw')]}, goto='editor_docx')",
       description: "PDF 분석",
     }),
   ).toEqual(["PDF 분석"]);
@@ -66,7 +66,15 @@ test("groups workspace skill checks into a single stream card", () => {
   const merged = mergeActivityEvent(normalizeGroupedActivity(first), second);
   expect(merged.label).toBe("스킬 확인");
   expect(merged.status).toBe("running");
-  expect(merged.summary).toMatchObject({ groupedCount: 2 });
+  expect(merged.summary).toMatchObject({
+    activityLogs: [
+      {
+        id: "skills-run-2",
+        label: "스킬 확인",
+        status: "completed",
+      },
+    ],
+  });
 });
 
 test("keeps skill reads grouped per skill", () => {
@@ -133,7 +141,7 @@ test("groups regular file list checks by path", () => {
   );
 });
 
-test("groups agent steps under their subagent delegation", () => {
+test("groups edit agent steps under their subagent delegation summary", () => {
   const delegation: ActivityEvent = {
     kind: "activity",
     type: "subagent",
@@ -143,17 +151,17 @@ test("groups agent steps under their subagent delegation", () => {
     label: "서브에이전트 위임",
     message: "AGENT가 서브에이전트 위임을 시작합니다.",
     status: "running",
-    summary: { delegationRunId: "task-run", description: "PDF 분석" },
+    summary: { delegationRunId: "task-run", description: "DOCX 수정" },
   };
   const step: ActivityEvent = {
     kind: "activity",
     type: "agent_step",
-    id: "pdf-agent-run",
-    runId: "pdf-agent-run",
+    id: "docx-agent-run",
+    runId: "docx-agent-run",
     parentIds: ["graph-run", "task-run"],
-    name: "agent_pdf",
-    label: "PDF 에이전트",
-    message: "AGENT가 PDF 분석을 시작합니다.",
+    name: "editor_docx",
+    label: "DOCX 에이전트",
+    message: "AGENT가 DOCX 작업을 시작합니다.",
     status: "running",
     summary: { delegationRunId: "task-run" },
   };
@@ -169,12 +177,12 @@ test("groups agent steps under their subagent delegation", () => {
 
   expect(merged.label).toBe("서브에이전트 위임");
   expect(merged.summary).toMatchObject({
-    description: "PDF 분석",
+    description: "DOCX 수정",
     activitySteps: [
       {
-        id: "pdf-agent-run",
-        label: "PDF 에이전트",
-        message: "AGENT가 PDF 분석을 시작합니다.",
+        id: "docx-agent-run",
+        label: "DOCX 에이전트",
+        message: "AGENT가 DOCX 작업을 시작합니다.",
         status: "running",
       },
     ],
@@ -182,7 +190,7 @@ test("groups agent steps under their subagent delegation", () => {
   expect((merged.summary as Record<string, unknown>).groupedCount).toBeUndefined();
 });
 
-test("groups legacy chain agent steps under their subagent delegation", () => {
+test("groups edit agent steps under their subagent delegation", () => {
   const delegation: ActivityEvent = {
     kind: "activity",
     type: "chain",
@@ -192,29 +200,17 @@ test("groups legacy chain agent steps under their subagent delegation", () => {
     label: "서브에이전트 위임",
     message: "AGENT가 서브에이전트 위임을 시작합니다.",
     status: "running",
-    summary: { description: "PDF 분석" },
+    summary: { description: "DOCX 수정" },
   };
-  const officeStep: ActivityEvent = {
+  const docxStep: ActivityEvent = {
     kind: "activity",
     type: "chain",
-    id: "office-run",
-    runId: "office-run",
+    id: "docx-run",
+    runId: "docx-run",
     parentIds: ["graph-run", "task-run"],
-    name: "office_file_agent",
-    label: "오피스 파일 에이전트",
-    message: "AGENT가 오피스 파일 작업을 위임합니다.",
-    status: "running",
-    summary: {},
-  };
-  const pdfStep: ActivityEvent = {
-    kind: "activity",
-    type: "chain",
-    id: "pdf-run",
-    runId: "pdf-run",
-    parentIds: ["graph-run", "task-run", "office-run"],
-    name: "agent_pdf",
-    label: "PDF 에이전트",
-    message: "AGENT가 PDF 분석을 시작합니다.",
+    name: "editor_docx",
+    label: "DOCX 에이전트",
+    message: "AGENT가 DOCX 작업을 시작합니다.",
     status: "completed",
     summary: {},
   };
@@ -222,28 +218,18 @@ test("groups legacy chain agent steps under their subagent delegation", () => {
   const id = "activity-group:stream-1:subagent:task-run";
 
   expect(activityMessageId(delegation, "fallback", "stream-1")).toBe(id);
-  expect(activityMessageId(officeStep, "fallback", "stream-1")).toBe(id);
-  expect(activityMessageId(pdfStep, "fallback", "stream-1")).toBe(id);
+  expect(activityMessageId(docxStep, "fallback", "stream-1")).toBe(id);
 
-  const merged = mergeActivityEvent(
-    mergeActivityEvent(delegation, officeStep),
-    pdfStep,
-  );
+  const merged = mergeActivityEvent(delegation, docxStep);
 
   expect(merged.label).toBe("서브에이전트 위임");
   expect(merged.summary).toMatchObject({
-    description: "PDF 분석",
+    description: "DOCX 수정",
     activitySteps: [
       {
-        id: "office-run",
-        label: "오피스 파일 에이전트",
-        message: "AGENT가 오피스 파일 작업을 위임합니다.",
-        status: "running",
-      },
-      {
-        id: "pdf-run",
-        label: "PDF 에이전트",
-        message: "AGENT가 PDF 분석을 시작합니다.",
+        id: "docx-run",
+        label: "DOCX 에이전트",
+        message: "AGENT가 DOCX 작업을 시작합니다.",
         status: "completed",
       },
     ],
@@ -257,7 +243,7 @@ test("groups repeated tool activities by tool and target", () => {
     type: "tool",
     id: "tool-one",
     runId: "tool-one",
-    name: "answer_pdf_question",
+    name: "read_pdf_file",
     status: "running",
     summary: { fileId: "file_001" },
   };
@@ -266,7 +252,7 @@ test("groups repeated tool activities by tool and target", () => {
     type: "tool",
     id: "tool-two",
     runId: "tool-two",
-    name: "answer_pdf_question",
+    name: "read_pdf_file",
     status: "completed",
     summary: { fileId: "file_001" },
   };
@@ -305,8 +291,14 @@ test("groups intermediate model outputs and keeps their text collapsed", () => {
   const merged = mergeActivityEvent(first, second);
 
   expect(merged.summary).toMatchObject({
-    groupedCount: 2,
     intermediateTexts: ["첫 번째 중간 응답", "두 번째 중간 응답"],
+    activityLogs: [
+      {
+        id: "model-two",
+        name: "model",
+        status: "completed",
+      },
+    ],
   });
   expect(activityDetailLines(merged.summary as Record<string, unknown>)).toEqual([]);
 });
@@ -377,7 +369,7 @@ test("groups PDF read tool and workflow into one card", () => {
     type: "tool",
     id: "tool-run",
     runId: "tool-run",
-    name: "answer_pdf_question",
+    name: "read_pdf_file",
     status: "running",
     summary: { path: "/report.pdf" },
   } satisfies ActivityEvent;

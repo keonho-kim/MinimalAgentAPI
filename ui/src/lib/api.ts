@@ -1,3 +1,5 @@
+import { apiResourceUrl, apiUrl } from "@/lib/backend-url";
+
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -14,6 +16,10 @@ export type FsListItem = {
 export type FsListResponse = {
   path: string;
   files: FsListItem[];
+};
+
+export type FsMutationResponse = {
+  path: string;
 };
 
 export type FsSearchResponse = {
@@ -130,7 +136,7 @@ export async function createChatStream({
   message: string;
   chatHistory: ChatMessage[];
 }) {
-  const response = await fetch("/chat", {
+  const response = await fetch(apiUrl("/chat"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -160,7 +166,7 @@ export async function createSessionTitle({
   sessionUuid: string;
   message: string;
 }) {
-  const response = await fetch("/api/session/title", {
+  const response = await fetch(apiUrl("/api/session/title"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -182,16 +188,18 @@ export async function createSessionTitle({
 export async function listFiles({
   userId,
   sessionUuid,
+  path = "/",
 }: {
   userId: string;
   sessionUuid: string;
+  path?: string;
 }) {
   const params = new URLSearchParams({
     user_id: userId,
     uuid: sessionUuid,
-    path: "/",
+    path,
   });
-  const response = await fetch(`/api/fs/list?${params.toString()}`);
+  const response = await fetch(apiUrl(`/api/fs/list?${params.toString()}`));
 
   if (!response.ok) {
     throw new Error(`File list failed: ${response.status}`);
@@ -217,13 +225,102 @@ export async function searchFiles({
     q: query,
     limit: String(limit),
   });
-  const response = await fetch(`/api/fs/search?${params.toString()}`);
+  const response = await fetch(apiUrl(`/api/fs/search?${params.toString()}`));
 
   if (!response.ok) {
     throw new Error(`File search failed: ${response.status}`);
   }
 
   return (await response.json()) as FsSearchResponse;
+}
+
+export async function deleteFsPath({
+  userId,
+  sessionUuid,
+  path,
+}: {
+  userId: string;
+  sessionUuid: string;
+  path: string;
+}) {
+  const params = new URLSearchParams({
+    user_id: userId,
+    uuid: sessionUuid,
+    path,
+  });
+  const response = await fetch(apiUrl(`/api/fs/files?${params.toString()}`), {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(`File delete failed: ${response.status}`);
+  }
+
+  return (await response.json()) as FsMutationResponse;
+}
+
+export const deleteFile = deleteFsPath;
+
+export async function moveFsPath({
+  userId,
+  sessionUuid,
+  path,
+  destinationPath,
+}: {
+  userId: string;
+  sessionUuid: string;
+  path: string;
+  destinationPath: string;
+}) {
+  const response = await fetch(apiUrl("/api/fs/move"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      uuid: sessionUuid,
+      path,
+      destination_path: destinationPath,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`File move failed: ${response.status}`);
+  }
+
+  return (await response.json()) as FsMutationResponse;
+}
+
+export async function renameFsPath({
+  userId,
+  sessionUuid,
+  path,
+  name,
+}: {
+  userId: string;
+  sessionUuid: string;
+  path: string;
+  name: string;
+}) {
+  const response = await fetch(apiUrl("/api/fs/rename"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      uuid: sessionUuid,
+      path,
+      name,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`File rename failed: ${response.status}`);
+  }
+
+  return (await response.json()) as FsMutationResponse;
 }
 
 export async function searchSkills({
@@ -243,7 +340,7 @@ export async function searchSkills({
     q: query,
     limit: String(limit),
   });
-  const response = await fetch(`/api/skills/search?${params.toString()}`);
+  const response = await fetch(apiUrl(`/api/skills/search?${params.toString()}`));
 
   if (!response.ok) {
     throw new Error(`Skill search failed: ${response.status}`);
@@ -266,13 +363,17 @@ export async function getFilePreview({
     uuid: sessionUuid,
     path,
   });
-  const response = await fetch(`/api/fs/preview?${params.toString()}`);
+  const response = await fetch(apiUrl(`/api/fs/preview?${params.toString()}`));
 
   if (!response.ok) {
     throw new Error(`File preview failed: ${response.status}`);
   }
 
-  return (await response.json()) as FsPreviewResponse;
+  const preview = (await response.json()) as FsPreviewResponse;
+  return {
+    ...preview,
+    source_url: apiResourceUrl(preview.source_url),
+  };
 }
 
 export async function uploadFiles({
@@ -292,7 +393,7 @@ export async function uploadFiles({
     form.append("files", file);
   }
 
-  const response = await fetch("/api/upload", {
+  const response = await fetch(apiUrl("/api/upload"), {
     method: "POST",
     body: form,
   });
@@ -311,7 +412,7 @@ export async function submitHitlDecision({
   streamId: string;
   decisions: HitlDecision[];
 }) {
-  const response = await fetch(`/chat/hitl/${streamId}`, {
+  const response = await fetch(apiUrl(`/chat/hitl/${streamId}`), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

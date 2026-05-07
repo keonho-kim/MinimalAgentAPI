@@ -11,15 +11,15 @@ import {
 } from "../ui/src/lib/file-mentions";
 
 test("serializes mixed file and skill mentions by range order", () => {
-  const value = "Use writing-guide with README.md";
+  const value = "Use $writing-guide with README.md";
 
   expect(
     serializeFileMentions(value, [
       {
         id: "file-1",
         kind: "file",
-        start: 23,
-        end: 32,
+        start: 24,
+        end: 33,
         label: "README.md",
         href: "/README.md",
       },
@@ -27,26 +27,26 @@ test("serializes mixed file and skill mentions by range order", () => {
         id: "skill-1",
         kind: "skill",
         start: 4,
-        end: 17,
-        label: "writing-guide",
+        end: 18,
+        label: "$writing-guide",
         href: "/.agents/skills/writing-guide/SKILL.md",
       },
     ]),
   ).toBe(
-    "Use [writing-guide](/.agents/skills/writing-guide/SKILL.md) with [README.md](/README.md)",
+    "Use [$writing-guide](/.agents/skills/writing-guide/SKILL.md) with [README.md](/README.md)",
   );
 });
 
 test("drops a mention token when its label is edited", () => {
-  const previousValue = "Use writing-guide";
-  const nextValue = "Use writing";
+  const previousValue = "Use $writing-guide";
+  const nextValue = "Use $writing";
   const ranges = validFileMentionRanges(previousValue, [
     {
       id: "skill-1",
       kind: "skill",
       start: 4,
-      end: 17,
-      label: "writing-guide",
+      end: 18,
+      label: "$writing-guide",
       href: "/.agents/skills/writing-guide/SKILL.md",
     },
   ]);
@@ -121,6 +121,23 @@ test("splits persisted markdown file mentions from the visible message body", ()
   });
 });
 
+test("splits persisted markdown file mentions with parentheses in href", () => {
+  expect(
+    splitLeadingMarkdownFileMentionAttachments(
+      "[(2022년 제2차) 경기도주식회사 정규직 직원 채용 공고문.pdf](/(2022년%20제2차)%20경기도주식회사%20정규직%20직원%20채용%20공고문.pdf)\n요약해줘",
+    ),
+  ).toEqual({
+    attachments: [
+      {
+        id: expect.any(String),
+        label: "(2022년 제2차) 경기도주식회사 정규직 직원 채용 공고문.pdf",
+        href: "/(2022년%20제2차)%20경기도주식회사%20정규직%20직원%20채용%20공고문.pdf",
+      },
+    ],
+    value: "요약해줘",
+  });
+});
+
 test("normalizes file mention href spaces before markdown rendering", () => {
   expect(
     normalizeMarkdownFileMentionHrefs(
@@ -128,6 +145,37 @@ test("normalizes file mention href spaces before markdown rendering", () => {
     ),
   ).toBe(
     "현재 파일: [AX HUB 구축_제안요청서.pdf](/AX%20HUB%20구축_제안요청서.pdf)",
+  );
+});
+
+test("normalizes file mention href with balanced parentheses", () => {
+  expect(
+    normalizeMarkdownFileMentionHrefs(
+      "현재 파일: [(2022년 제2차) 경기도주식회사 정규직 직원 채용 공고문.pdf](/(2022년%20제2차)%20경기도주식회사%20정규직%20직원%20채용%20공고문.pdf)",
+    ),
+  ).toBe(
+    "현재 파일: [(2022년 제2차) 경기도주식회사 정규직 직원 채용 공고문.pdf](/(2022년%20제2차)%20경기도주식회사%20정규직%20직원%20채용%20공고문.pdf)",
+  );
+});
+
+test("serializes selected hwpx file mentions with Korean text and parentheses", () => {
+  const value = "붙임3. 공동연구 제안요청서(RFP).hwpx 내용을 확인해줘";
+
+  expect(
+    normalizeMarkdownFileMentionHrefs(
+      serializeFileMentions(value, [
+        {
+          id: "file-1",
+          kind: "file",
+          start: 0,
+          end: 25,
+          label: "붙임3. 공동연구 제안요청서(RFP).hwpx",
+          href: "/붙임3. 공동연구 제안요청서(RFP).hwpx",
+        },
+      ]),
+    ),
+  ).toBe(
+    "[붙임3. 공동연구 제안요청서(RFP).hwpx](/붙임3.%20공동연구%20제안요청서(RFP).hwpx) 내용을 확인해줘",
   );
 });
 

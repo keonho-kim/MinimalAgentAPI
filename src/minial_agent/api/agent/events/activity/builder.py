@@ -236,6 +236,16 @@ class ActivityEventBuilder:
         event_name: str,
     ) -> dict[str, Any] | None:
         name = raw.get("name") or ""
+        if _is_visible_middleware_name(name):
+            data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+            return self.create(
+                raw,
+                "middleware",
+                "running" if event_name.endswith("_start") else "completed",
+                data.get("input"),
+                data.get("output"),
+            )
+
         if _is_internal_middleware_name(name):
             return None
 
@@ -316,3 +326,11 @@ def _is_internal_middleware_name(name: str) -> bool:
         or name.endswith(".before_agent")
         or name.endswith(".after_agent")
     )
+
+
+def _is_visible_middleware_name(name: str) -> bool:
+    return name in {
+        "OfficeBinaryReadGuardMiddleware",
+        "OfficeBinaryReadGuardMiddleware.before_agent",
+        "OfficeBinaryReadGuardMiddleware.after_agent",
+    }

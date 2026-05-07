@@ -7,25 +7,25 @@ from docx import Document
 from openpyxl import Workbook, load_workbook
 from pptx import Presentation
 
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.utils.editing import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_docx.utils.editing import (
     apply_docx_edit,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.edit.nodes import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_docx.workflow.edit.nodes import (
     build_docx_edit_spec,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_hwpx.utils.editing import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_hwpx.utils.editing import (
     apply_hwpx_edit,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pptx.utils.editing import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.utils.editing import (
     apply_pptx_edit,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.utils.editing import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.utils.editing import (
     apply_xlsx_edit,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.workflow.edit import (
     build_xlsx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.utils.edit_protocol import (
+from minial_agent.agents.domain.office_file_editor.utils.edit_protocol import (
     parse_slots,
     select_operation,
 )

@@ -1,6 +1,5 @@
 import json
 import re
-import shutil
 import tempfile
 import zipfile
 from datetime import date, datetime, time, timedelta

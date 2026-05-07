@@ -574,8 +574,8 @@ def test_stream_event_normalizer_maps_agent_chain_to_delegation_step() -> None:
     events = normalizer.normalize(
         {
             "event": "on_chain_start",
-            "name": "agent_pdf",
-            "run_id": "pdf-agent-run",
+            "name": "editor_docx",
+            "run_id": "docx-agent-run",
             "parent_ids": ["graph-run", "task-run"],
             "data": {"input": {"file_id": "file_001"}},
         }
@@ -583,7 +583,7 @@ def test_stream_event_normalizer_maps_agent_chain_to_delegation_step() -> None:
 
     assert events[0]["kind"] == "activity"
     assert events[0]["type"] == "agent_step"
-    assert events[0]["label"] == "PDF 에이전트"
+    assert events[0]["label"] == "DOCX 에이전트"
     assert events[0]["summary"]["delegationRunId"] == "task-run"
 
 
@@ -591,7 +591,7 @@ def test_stream_event_normalizer_hides_office_worker_chain_wrappers() -> None:
     events = StreamEventNormalizer().normalize(
         {
             "event": "on_chain_start",
-            "name": "answer_pdf_question",
+            "name": "read_pdf_file",
             "run_id": "answer-chain-run",
             "data": {"input": {"file_id": "file_001"}},
         }
@@ -728,7 +728,7 @@ def test_stream_event_normalizer_keeps_nested_model_text_out_of_answer() -> None
             "event": "on_chat_model_stream",
             "name": "model",
             "run_id": "nested-run",
-            "parent_ids": ["graph", "agent_pdf"],
+            "parent_ids": ["graph", "editor_docx"],
             "metadata": {
                 "langgraph_node": "model",
                 "langgraph_checkpoint_ns": "tools:agent-run|model:nested-checkpoint",
@@ -741,7 +741,7 @@ def test_stream_event_normalizer_keeps_nested_model_text_out_of_answer() -> None
             "event": "on_chat_model_end",
             "name": "model",
             "run_id": "nested-run",
-            "parent_ids": ["graph", "agent_pdf"],
+            "parent_ids": ["graph", "editor_docx"],
             "metadata": {
                 "langgraph_node": "model",
                 "langgraph_checkpoint_ns": "tools:agent-run|model:nested-checkpoint",
@@ -787,10 +787,10 @@ def test_stream_event_normalizer_emits_tool_intent_once_per_call() -> None:
             "chunk": AIMessageChunk(
                 content="",
                 tool_call_chunks=[
-                    {
-                        "name": "answer_pdf_question",
-                        "args": '{"file_path":"/report.pdf"}',
-                        "id": "call_1",
+                        {
+                            "name": "read_pdf_file",
+                            "args": '{"file_path":"/report.pdf"}',
+                            "id": "call_1",
                         "index": 0,
                     }
                 ],
@@ -802,7 +802,7 @@ def test_stream_event_normalizer_emits_tool_intent_once_per_call() -> None:
     second = normalizer.normalize(raw)
 
     assert len(first) == 1
-    assert first[0]["name"] == "answer_pdf_question"
+    assert first[0]["name"] == "read_pdf_file"
     assert second == []
 
 
@@ -906,6 +906,21 @@ def test_stream_event_normalizer_maps_middleware_display_names() -> None:
     assert events == []
 
 
+def test_stream_event_normalizer_maps_office_read_guard_middleware_display() -> None:
+    events = StreamEventNormalizer().normalize(
+        {
+            "event": "on_chain_start",
+            "name": "OfficeBinaryReadGuardMiddleware.before_agent",
+            "run_id": "office-read-guard-run",
+            "data": {"input": {}},
+        }
+    )
+
+    assert events[0]["type"] == "middleware"
+    assert events[0]["label"] == "문서 읽기 보호"
+    assert events[0]["message"] == "AGENT가 문서 읽기 방식을 확인합니다."
+
+
 def test_stream_event_normalizer_maps_skills_middleware_metadata() -> None:
     events = StreamEventNormalizer().normalize(
         {
@@ -965,7 +980,7 @@ def test_stream_event_normalizer_summarizes_tool_message_artifact() -> None:
     events = StreamEventNormalizer().normalize(
         {
             "event": "on_tool_end",
-            "name": "answer_pdf_question",
+            "name": "read_pdf_file",
             "run_id": "tool-run",
             "data": {
                 "output": ToolMessage(
@@ -987,11 +1002,11 @@ def test_stream_event_normalizer_summarizes_tool_message_artifact() -> None:
     assert "result" not in events[0]["summary"]
 
 
-def test_stream_event_normalizer_summarizes_command_without_raw_messages() -> None:
+def test_stream_event_normalizer_summarizes_edit_agent_command_without_raw_messages() -> None:
     events = StreamEventNormalizer().normalize(
         {
             "event": "on_chain_end",
-            "name": "agent_pdf",
+            "name": "editor_docx",
             "run_id": "agent-run",
             "data": {
                 "output": Command(
@@ -1001,46 +1016,54 @@ def test_stream_event_normalizer_summarizes_command_without_raw_messages() -> No
                         "filename": "report.pdf",
                         "page_count": 3,
                     },
-                    goto="agent_pdf",
+                    goto="editor_docx",
                 )
             },
         }
     )
 
     assert events[0]["type"] == "agent_step"
-    assert events[0]["label"] == "PDF 에이전트"
-    assert events[0]["message"] == "AGENT가 PDF 분석을 완료했습니다."
+    assert events[0]["label"] == "DOCX 에이전트"
+    assert events[0]["message"] == "AGENT가 DOCX 작업을 완료했습니다."
     assert events[0]["summary"]["fileId"] == "file_001"
     assert events[0]["summary"]["filename"] == "report.pdf"
     assert events[0]["summary"]["pageCount"] == 3
-    assert events[0]["summary"]["next"] == "agent_pdf"
+    assert events[0]["summary"]["next"] == "editor_docx"
     assert "messages" not in events[0]["summary"]
     assert "result" not in events[0]["summary"]
 
 
-def test_stream_event_normalizer_maps_agent_names() -> None:
+def test_stream_event_normalizer_maps_edit_agent_names() -> None:
     events = StreamEventNormalizer().normalize(
         {
             "event": "on_chain_start",
-            "name": "office_file_agent",
+            "name": "editor_xlsx",
             "run_id": "office-run",
-            "data": {"input": {"name": "agent_pdf", "file_id": "file_001"}},
+            "data": {"input": {"name": "editor_xlsx", "file_id": "file_001"}},
         }
     )
 
     assert events[0]["type"] == "agent_step"
-    assert events[0]["label"] == "PDF 에이전트"
-    assert events[0]["message"] == "AGENT가 PDF 분석을 시작합니다."
-    assert events[0]["summary"]["agentName"] == "agent_pdf"
+    assert events[0]["label"] == "XLSX 에이전트"
+    assert events[0]["message"] == "AGENT가 XLSX 작업을 시작합니다."
+    assert events[0]["summary"]["agentName"] == "editor_xlsx"
 
 
 def test_stream_event_normalizer_maps_office_worker_tool_names() -> None:
     normalizer = StreamEventNormalizer()
 
+    today_events = normalizer.normalize(
+        {
+            "event": "on_tool_start",
+            "name": "get_today",
+            "run_id": "today-run",
+            "data": {"input": {}},
+        }
+    )
     read_events = normalizer.normalize(
         {
             "event": "on_tool_start",
-            "name": "answer_xlsx_question",
+            "name": "read_xlsx_file",
             "run_id": "xlsx-read-run",
             "data": {"input": {"file_id": "file_001"}},
         }
@@ -1054,11 +1077,14 @@ def test_stream_event_normalizer_maps_office_worker_tool_names() -> None:
         }
     )
 
-    assert read_events[0]["label"] == "XLSX 질문 답변"
-    assert read_events[0]["message"] == "AGENT가 XLSX 질문 답변 작업을 시작합니다."
+    assert today_events[0]["label"] == "오늘 날짜 확인"
+    assert today_events[0]["message"] == "AGENT가 오늘 날짜를 확인합니다."
+    assert "get_today" not in today_events[0]["message"]
+    assert read_events[0]["label"] == "XLSX 읽기"
+    assert read_events[0]["message"] == "AGENT가 XLSX 읽기 작업을 시작합니다."
     assert edit_events[0]["label"] == "PPTX 수정"
     assert edit_events[0]["message"] == "AGENT가 PPTX 수정 작업을 시작합니다."
-    assert "answer_xlsx_question" not in read_events[0]["message"]
+    assert "read_xlsx_file" not in read_events[0]["message"]
     assert "edit_pptx" not in edit_events[0]["message"]
 
 

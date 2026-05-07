@@ -1,6 +1,7 @@
 import { memo, useLayoutEffect, useRef } from "react";
 
 import type { UiMessage } from "@/lib/chat-messages";
+import { ActivityTimeline } from "@/components/chat/activity-timeline";
 import { MessageCard } from "@/components/chat/message-card";
 import {
   Card,
@@ -42,7 +43,13 @@ export const ChatMessageList = memo(function ChatMessageList({
             </CardHeader>
           </Card>
         ) : (
-          messages.map((item) => <MessageCard key={item.id} item={item} />)
+          messages.map((item) =>
+            item.kind === "activity-block" ? (
+              <ActivityTimeline item={item} key={item.id} />
+            ) : (
+              <MessageCard item={item} key={item.id} />
+            ),
+          )
         )}
         <div ref={bottomRef} />
       </div>

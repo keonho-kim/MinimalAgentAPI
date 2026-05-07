@@ -16,7 +16,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 
 from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
-from minial_agent.agents.domain.office_file_agent import build_office_file_subagent
+from minial_agent.agents.domain.office_file_editor import build_office_edit_subagents
+from minial_agent.agents.middleware import OfficeBinaryReadGuardMiddleware
+from minial_agent.agents.tools import ALL_AGENT_TOOLS
 from minial_agent.common.llm import llm_client
 from minial_agent.integrations.upload import ensure_upload_workspace
 
@@ -33,6 +35,24 @@ FILESYSTEM_HITL_POLICY = {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
             "A file edit requires approval before it changes the workspace."
+        ),
+    },
+    "rename_file": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": (
+            "A file or folder rename requires approval before it changes the workspace."
+        ),
+    },
+    "move_file": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": (
+            "A file or folder move requires approval before it changes the workspace."
+        ),
+    },
+    "delete_file": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": (
+            "A file or folder deletion requires approval before it changes the workspace."
         ),
     },
 }
@@ -72,7 +92,7 @@ class AgentBuilder:
         ############# SUBAGENTS #############
         #####################################
 
-        office_subagent = build_office_file_subagent(
+        office_edit_subagents = build_office_edit_subagents(
             model=model,
             backend=files_backend,
             store=_store,
@@ -87,13 +107,14 @@ class AgentBuilder:
             FilesystemMiddleware(
                 backend=core_backend,
             ),
+            OfficeBinaryReadGuardMiddleware(),
             SkillsMiddleware(
                 backend=core_backend,
                 sources=[WORKSPACE_SKILL_SOURCE],
             ),
             SubAgentMiddleware(
                 backend=files_backend,
-                subagents=[office_subagent],
+                subagents=office_edit_subagents,
             ),
             SummarizationMiddleware(
                 model=llm_client(),
@@ -113,6 +134,7 @@ class AgentBuilder:
         return create_agent(
             model=model,
             system_prompt=CORE_AGENT_SYSTEM_PROMPT,
+            tools=ALL_AGENT_TOOLS,
             middleware=middlewares,
             store=_store,
             checkpointer=_checkpointer,

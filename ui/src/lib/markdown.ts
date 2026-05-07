@@ -1,6 +1,8 @@
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import markdownItKatex from "markdown-it-katex";
+import type Token from "markdown-it/lib/token.mjs";
+import type StateCore from "markdown-it/lib/rules_core/state_core.mjs";
 
 import { highlightedCodeBlock } from "@/lib/code-highlight";
 import {
@@ -20,6 +22,16 @@ const markdown = new MarkdownIt({
 }).use(markdownItKatex, {
   output: "html",
   throwOnError: false,
+});
+
+markdown.core.ruler.after("inline", "skill_mentions", (state) => {
+  for (const token of state.tokens) {
+    if (token.type !== "inline" || !token.children?.length) {
+      continue;
+    }
+
+    token.children = renderPlainSkillMentionTokens(state, token.children);
+  }
 });
 
 const defaultLinkOpen =
@@ -71,4 +83,92 @@ export function renderSafeMarkdown(source: string) {
     USE_PROFILES: { html: true },
     ADD_ATTR: ["class", "target"],
   });
+}
+
+function renderPlainSkillMentionTokens(state: StateCore, tokens: Token[]) {
+  const nextTokens: Token[] = [];
+  let linkDepth = 0;
+
+  for (const token of tokens) {
+    if (token.type === "link_open") {
+      linkDepth += 1;
+      nextTokens.push(token);
+      continue;
+    }
+
+    if (token.type === "link_close") {
+      linkDepth = Math.max(0, linkDepth - 1);
+      nextTokens.push(token);
+      continue;
+    }
+
+    if (token.type !== "text" || linkDepth > 0) {
+      nextTokens.push(token);
+      continue;
+    }
+
+    nextTokens.push(...splitPlainSkillMentionText(state, token));
+  }
+
+  return nextTokens;
+}
+
+function splitPlainSkillMentionText(state: StateCore, sourceToken: Token) {
+  const tokens: Token[] = [];
+  const pattern = /(^|[\s([{])(\$[A-Za-z_][A-Za-z0-9_.-]*)/g;
+  let cursor = 0;
+
+  for (const match of sourceToken.content.matchAll(pattern)) {
+    const prefix = match[1] ?? "";
+    const mention = match[2] ?? "";
+    const mentionStart = (match.index ?? 0) + prefix.length;
+
+    appendTextToken(
+      state,
+      tokens,
+      sourceToken,
+      sourceToken.content.slice(cursor, mentionStart),
+    );
+    appendSkillMentionToken(state, tokens, sourceToken, mention);
+    cursor = mentionStart + mention.length;
+  }
+
+  appendTextToken(state, tokens, sourceToken, sourceToken.content.slice(cursor));
+  return tokens.length ? tokens : [sourceToken];
+}
+
+function appendTextToken(
+  state: StateCore,
+  tokens: Token[],
+  sourceToken: Token,
+  content: string,
+) {
+  if (!content) {
+    return;
+  }
+
+  const token = new state.Token("text", "", 0);
+  token.content = content;
+  token.level = sourceToken.level;
+  tokens.push(token);
+}
+
+function appendSkillMentionToken(
+  state: StateCore,
+  tokens: Token[],
+  sourceToken: Token,
+  content: string,
+) {
+  const openToken = new state.Token("span_open", "span", 1);
+  openToken.attrSet("class", "skill-mention-pill");
+  openToken.level = sourceToken.level;
+
+  const textToken = new state.Token("text", "", 0);
+  textToken.content = content;
+  textToken.level = sourceToken.level + 1;
+
+  const closeToken = new state.Token("span_close", "span", -1);
+  closeToken.level = sourceToken.level;
+
+  tokens.push(openToken, textToken, closeToken);
 }

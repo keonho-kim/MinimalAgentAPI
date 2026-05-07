@@ -80,6 +80,17 @@ textarea {
   font: inherit;
 }
 
+.composer-editor .ProseMirror {
+  min-height: 6rem;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer-editor .ProseMirror p {
+  margin: 0;
+}
+
 .session-title-viewport {
   display: block;
   min-width: 0;
@@ -167,75 +178,50 @@ textarea {
 .skill-mention-pill {
   display: inline-flex;
   max-width: min(18rem, 100%);
-  align-items: center;
+  align-items: baseline;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, #2f7d45 28%, transparent);
+  border: 1px solid color-mix(in srgb, #2563eb 28%, transparent);
   border-radius: 999px;
-  background: #dff2e3;
-  color: #225831;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.875rem;
   font-weight: 650;
-  line-height: 1.45;
-  padding: 0.05rem 0.48rem;
+  line-height: 1.4;
+  padding: 0.04rem 0.5rem;
   text-decoration: none;
   vertical-align: baseline;
-  white-space: nowrap;
 }
 
 .file-mention-pill {
-  border: 1px solid color-mix(in srgb, #2f7d45 28%, transparent);
-  background: #dff2e3;
-  color: #225831;
+  border: 1px solid color-mix(in srgb, #2563eb 28%, transparent);
+  background: #dbeafe;
+  color: #1d4ed8;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .skill-mention-pill {
   border: 1px solid color-mix(in srgb, #b86a7b 28%, transparent);
   background: #fdecef;
   color: #814455;
-}
-
-.file-mention-pill::before,
-.skill-mention-pill::before {
-  content: "";
-  width: 0.38rem;
-  height: 0.38rem;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  margin-inline-end: 0.34rem;
-}
-
-.file-mention-pill::before {
-  background: #2f7d45;
-}
-
-.skill-mention-pill::before {
-  background: #b86a7b;
+  white-space: nowrap;
 }
 
 .chat-file-attachment-pill {
   display: inline-flex;
-  max-width: min(20rem, 100%);
-  align-items: center;
-  overflow: hidden;
+  max-width: 100%;
+  align-items: baseline;
   border: 1px solid color-mix(in srgb, #2563eb 28%, transparent);
   border-radius: 999px;
   background: #dbeafe;
   color: #1d4ed8;
   font-size: 0.8125rem;
   font-weight: 650;
-  line-height: 1.45;
-  padding: 0.08rem 0.55rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-file-attachment-pill::before {
-  content: "";
-  width: 0.38rem;
-  height: 0.38rem;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  margin-inline-end: 0.34rem;
-  background: #2563eb;
+  line-height: 1.4;
+  padding: 0.06rem 0.5rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .message-renderer code {

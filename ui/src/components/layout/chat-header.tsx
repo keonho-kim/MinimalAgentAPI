@@ -2,7 +2,6 @@ import { PanelRightOpen, Plus } from "lucide-react";
 import { memo } from "react";
 
 import type { SessionSummary } from "@/store/session-store";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -10,7 +9,6 @@ export const ChatHeader = memo(function ChatHeader({
   currentTitle,
   sessionUuid,
   sessions,
-  status,
   userId,
   onNewSession,
   onOpenFiles,
@@ -20,7 +18,6 @@ export const ChatHeader = memo(function ChatHeader({
   currentTitle: string | undefined;
   sessionUuid: string;
   sessions: SessionSummary[];
-  status: string;
   userId: string;
   onNewSession(): void;
   onOpenFiles(): void;
@@ -33,9 +30,6 @@ export const ChatHeader = memo(function ChatHeader({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold">Chat</p>
-            <Badge className="bg-card text-muted-foreground" variant="outline">
-              {status}
-            </Badge>
           </div>
           <p className="truncate font-mono text-[11px] text-muted-foreground">
             {currentTitle ?? sessionUuid}

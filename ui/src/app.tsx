@@ -1,27 +1,33 @@
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { DragEvent, FormEvent, ReactNode } from "react";
 
 import { ChatComposer } from "@/components/chat/chat-composer";
+import type {
+  ComposerEditorHandle,
+  ComposerSubmitPayload,
+} from "@/lib/composer-editor";
 import { ChatMessageList } from "@/components/chat/chat-message-list";
-import { FileDrawer } from "@/components/workspace/file-drawer";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ChatHeader } from "@/components/layout/chat-header";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useChatStream } from "@/hooks/use-chat-stream";
-import { useFileMentions } from "@/hooks/use-file-mentions";
 import { useFilePreview } from "@/hooks/use-file-preview";
 import { useHitlApproval } from "@/hooks/use-hitl-approval";
-import { useSkillMentions } from "@/hooks/use-skill-mentions";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
 import type { FsListItem } from "@/lib/api";
-import { type FileMentionAttachment, toAgentFileHref } from "@/lib/file-mentions";
+import {
+  fileMentionAttachmentFromDragPayload,
+  readFileMentionDragPayload,
+  toAgentFileHref,
+} from "@/lib/file-mentions";
 import { createId } from "@/lib/id";
 import { isPreviewSupported } from "@/lib/preview-support";
 import { useSessionStore } from "@/store/session-store";
 
-const FilePreviewSheet = lazy(() =>
-  import("@/components/preview/file-preview-sheet").then((module) => ({
-    default: module.FilePreviewSheet,
+const FilePreviewSheet = lazy(loadFilePreviewSheet);
+const FileDrawer = lazy(() =>
+  import("@/components/workspace/file-drawer").then((module) => ({
+    default: module.FileDrawer,
   })),
 );
 const HitlApprovalDialog = lazy(() =>
@@ -29,6 +35,26 @@ const HitlApprovalDialog = lazy(() =>
     default: module.HitlApprovalDialog,
   })),
 );
+
+function loadFilePreviewSheet() {
+  return import("@/components/preview/file-preview-sheet")
+    .then((module) => ({
+      default: module.FilePreviewSheet,
+    }))
+    .catch((error) => {
+      recoverFromStaleUiChunk();
+      throw error;
+    });
+}
+
+function recoverFromStaleUiChunk() {
+  const key = "minial:preview-chunk-reload";
+  if (sessionStorage.getItem(key) === "1") {
+    return;
+  }
+  sessionStorage.setItem(key, "1");
+  window.location.reload();
+}
 
 export function App() {
   return (
@@ -44,6 +70,7 @@ function MinimalAgentShell() {
     sessionUuid,
     sessions,
     fileDrawerOpen,
+    fileDrawerWidth,
     setUserId,
     setSessionUuid,
     createSession,
@@ -51,15 +78,14 @@ function MinimalAgentShell() {
     renameSession,
     touchSession,
     setFileDrawerOpen,
+    setFileDrawerWidth,
   } = useSessionStore();
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const markChatResumingRef = useRef<(() => void) | null>(null);
-  const [composerAttachments, setComposerAttachments] = useState<
-    FileMentionAttachment[]
-  >([]);
+  const composerRef = useRef<ComposerEditorHandle | null>(null);
   const [composerUploadError, setComposerUploadError] = useState<string | null>(
     null,
   );
+  const [globalDropActive, setGlobalDropActive] = useState(false);
   const currentSession = useMemo(
     () => sessions.find((session) => session.uuid === sessionUuid) ?? sessions[0],
     [sessionUuid, sessions],
@@ -76,8 +102,6 @@ function MinimalAgentShell() {
     renameSession,
     touchSession,
     onBeforeSubmit() {
-      mentions.close();
-      skillMentions.close();
       hitl.clearState();
     },
     onHitlRequest: hitl.openRequest,
@@ -85,39 +109,21 @@ function MinimalAgentShell() {
     onStreamCreated: hitl.beginStream,
     onStreamCleared: hitl.clearState,
   });
-  const mentions = useFileMentions({
-    userId,
-    sessionUuid,
-    message: chat.message,
-    insertFileMention: chat.insertMentionRange,
-    textareaRef,
-  });
-  const skillMentions = useSkillMentions({
-    userId,
-    sessionUuid,
-    message: chat.message,
-    insertMentionRange: chat.insertMentionRange,
-    textareaRef,
-  });
   const workspaceFiles = useWorkspaceFiles({ userId, sessionUuid });
   const filePreview = useFilePreview({ userId, sessionUuid });
   markChatResumingRef.current = chat.markResuming;
 
   const switchSession = useCallback((nextUuid: string) => {
     chat.closeStream();
-    mentions.close();
-    skillMentions.close();
     hitl.clearState();
-    setComposerAttachments([]);
     setComposerUploadError(null);
+    composerRef.current?.clear();
     setSessionUuid(nextUuid);
     chat.loadSession(nextUuid);
   }, [
     chat.closeStream,
     chat.loadSession,
     hitl.clearState,
-    mentions.close,
-    skillMentions.close,
     setSessionUuid,
   ]);
 
@@ -156,6 +162,36 @@ function MinimalAgentShell() {
     [filePreview.openPreview],
   );
 
+  const deleteFile = useCallback(
+    async (file: FsListItem) => {
+      await workspaceFiles.deleteFile(file);
+      if (previewIsAffected(file, filePreview.activePath)) {
+        filePreview.closePreview();
+      }
+    },
+    [filePreview.activePath, filePreview.closePreview, workspaceFiles.deleteFile],
+  );
+
+  const movePath = useCallback(
+    async (file: FsListItem, destinationPath: string) => {
+      await workspaceFiles.movePath({ file, destinationPath });
+      if (previewIsAffected(file, filePreview.activePath)) {
+        filePreview.closePreview();
+      }
+    },
+    [filePreview.activePath, filePreview.closePreview, workspaceFiles.movePath],
+  );
+
+  const renamePath = useCallback(
+    async (file: FsListItem, name: string) => {
+      await workspaceFiles.renamePath({ file, name });
+      if (previewIsAffected(file, filePreview.activePath)) {
+        filePreview.closePreview();
+      }
+    },
+    [filePreview.activePath, filePreview.closePreview, workspaceFiles.renamePath],
+  );
+
   const refreshFiles = useCallback(() => {
     void workspaceFiles.refresh();
   }, [workspaceFiles.refresh]);
@@ -176,8 +212,11 @@ function MinimalAgentShell() {
     void hitl.submit("edit");
   }, [hitl.submit]);
 
-  const uploadComposerFiles = useCallback(
-    async (files: File[]) => {
+  const uploadFiles = useCallback(
+    async (
+      files: File[],
+      { insertIntoComposer }: { insertIntoComposer: boolean },
+    ) => {
       setComposerUploadError(null);
       try {
         const response = await workspaceFiles.uploadSelectedFiles(files);
@@ -193,58 +232,115 @@ function MinimalAgentShell() {
           (file) => file.status !== "converted" || !file.path,
         );
 
-        if (uploaded.length) {
-          setComposerAttachments((current) => [
-            ...current,
-            ...uploaded.map((file) => ({
+        if (insertIntoComposer && uploaded.length) {
+          composerRef.current?.insertFileMentions(
+            uploaded.map((file) => ({
               id: createId(),
               label: file.originalName,
               href: toAgentFileHref(file.path),
             })),
-          ]);
+          );
         }
 
         if (failed.length) {
           setComposerUploadError(
-            failed[0].error ?? "Upload failed for one or more files.",
+            "하나 이상의 파일 업로드에 실패했습니다.",
           );
         }
-      } catch (error) {
-        setComposerUploadError(
-          error instanceof Error ? error.message : "Upload failed.",
-        );
+      } catch {
+        setComposerUploadError("업로드에 실패했습니다.");
       }
     },
-    [workspaceFiles.uploadSelectedFiles],
+    [
+      workspaceFiles.uploadSelectedFiles,
+    ],
   );
 
-  const removeComposerAttachment = useCallback((id: string) => {
-    setComposerAttachments((current) =>
-      current.filter((attachment) => attachment.id !== id),
-    );
-    setComposerUploadError(null);
+  const uploadComposerFiles = useCallback(
+    (files: File[]) => uploadFiles(files, { insertIntoComposer: true }),
+    [uploadFiles],
+  );
+
+  const uploadDrawerFiles = useCallback(
+    (files: File[]) => uploadFiles(files, { insertIntoComposer: false }),
+    [uploadFiles],
+  );
+
+  const globalDropDisabled = chat.chatBlocked || workspaceFiles.uploadPending;
+
+  const handleGlobalDragOver = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      if (
+        (!hasDraggedFiles(event) && !hasDraggedFileMention(event)) ||
+        globalDropDisabled
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (hasDraggedFiles(event)) {
+        setGlobalDropActive(true);
+      }
+    },
+    [globalDropDisabled],
+  );
+
+  const handleGlobalDragLeave = useCallback((event: DragEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setGlobalDropActive(false);
+    }
   }, []);
 
-  const submitComposerMessage = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      void chat.submitMessage(event, composerAttachments).then((submitted) => {
-        if (!submitted) {
-          return;
+  const handleGlobalDrop = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      const fileMentionPayload = readFileMentionDragPayload(event.dataTransfer);
+      if (fileMentionPayload) {
+        event.preventDefault();
+        setGlobalDropActive(false);
+        if (!globalDropDisabled) {
+          composerRef.current?.insertFileMentions([
+            fileMentionAttachmentFromDragPayload(fileMentionPayload),
+          ]);
         }
-        setComposerAttachments([]);
-        setComposerUploadError(null);
-      });
+        return;
+      }
+
+      if (!hasDraggedFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+      setGlobalDropActive(false);
+      if (globalDropDisabled) {
+        return;
+      }
+      void uploadComposerFiles(Array.from(event.dataTransfer.files));
     },
-    [chat.submitMessage, composerAttachments],
+    [globalDropDisabled, uploadComposerFiles],
+  );
+
+  const submitComposerMessage = useCallback(
+    async (
+      event: FormEvent<HTMLFormElement>,
+      payload: ComposerSubmitPayload,
+    ) => {
+      const submitted = await chat.submitMessage(event, payload);
+      if (submitted) {
+        setComposerUploadError(null);
+      }
+      return submitted;
+    },
+    [chat.submitMessage],
   );
 
   return (
     <AppShell
+      dropActive={globalDropActive}
+      onDragLeave={handleGlobalDragLeave}
+      onDragOver={handleGlobalDragOver}
+      onDrop={handleGlobalDrop}
       sidebar={
         <AppSidebar
           sessionUuid={sessionUuid}
           sessions={sessions}
-          status={chat.status}
           userId={userId}
           onNewSession={startSession}
           onRemoveSession={removeSession}
@@ -257,31 +353,12 @@ function MinimalAgentShell() {
         composer={
           <ChatComposer
             disabled={chat.chatBlocked || workspaceFiles.uploadPending}
-            mentionActive={mentions.active}
-            mentionIndex={mentions.activeIndex}
-            mentionMatches={mentions.matches}
-            mentionStatus={mentions.status}
-            message={chat.message}
-            mentionRanges={chat.mentionRanges}
-            uploadAttachments={composerAttachments}
+            ref={composerRef}
+            sessionUuid={sessionUuid}
             uploadError={composerUploadError}
             uploadPending={workspaceFiles.uploadPending}
-            skillMentionActive={skillMentions.active}
-            skillMentionIndex={skillMentions.activeIndex}
-            skillMentionMatches={skillMentions.matches}
-            skillMentionStatus={skillMentions.status}
-            textareaRef={textareaRef}
-            onCursorSync={(element) => {
-              mentions.syncCursor(element);
-              skillMentions.syncCursor(element);
-            }}
-            onMentionKeyDown={mentions.handleKeyDown}
-            onMentionSelect={mentions.select}
-            onSkillMentionKeyDown={skillMentions.handleKeyDown}
-            onSkillMentionSelect={skillMentions.select}
-            onMessageChange={chat.setMessage}
+            userId={userId}
             onSubmit={submitComposerMessage}
-            onUploadAttachmentRemove={removeComposerAttachment}
             onUploadFiles={uploadComposerFiles}
           />
         }
@@ -290,7 +367,6 @@ function MinimalAgentShell() {
             currentTitle={currentSession?.title}
             sessionUuid={sessionUuid}
             sessions={sessions}
-            status={chat.status}
             userId={userId}
             onNewSession={startSession}
             onOpenFiles={openFiles}
@@ -300,16 +376,28 @@ function MinimalAgentShell() {
         }
         messages={<ChatMessageList messages={chat.uiMessages} />}
       />
-      <FileDrawer
-        files={workspaceFiles.files}
-        isPreviewSupported={isPreviewSupported}
-        open={fileDrawerOpen}
-        status={workspaceFiles.status}
-        onOpenChange={setFileDrawerOpen}
-        onPreview={openPreview}
-        onRefresh={refreshFiles}
-        onUpload={workspaceFiles.upload}
-      />
+      {fileDrawerOpen ? (
+        <Suspense fallback={null}>
+          <FileDrawer
+            drawerWidth={fileDrawerWidth}
+            files={workspaceFiles.files}
+            isPreviewSupported={isPreviewSupported}
+            operationPendingPath={workspaceFiles.operationPendingPath}
+            open={fileDrawerOpen}
+            status={workspaceFiles.status}
+            onDelete={deleteFile}
+            onDrawerWidthChange={setFileDrawerWidth}
+            onMove={movePath}
+            onOpenChange={setFileDrawerOpen}
+            onPreview={openPreview}
+            onRefresh={refreshFiles}
+            onRename={renamePath}
+            onUploadFiles={uploadDrawerFiles}
+            sessionUuid={sessionUuid}
+            userId={userId}
+          />
+        </Suspense>
+      ) : null}
       {filePreview.open ? (
         <Suspense fallback={null}>
           <FilePreviewSheet
@@ -345,15 +433,33 @@ function MinimalAgentShell() {
 
 function AppShell({
   children,
+  dropActive,
+  onDragLeave,
+  onDragOver,
+  onDrop,
   sidebar,
 }: {
   children: ReactNode;
+  dropActive: boolean;
+  onDragLeave(event: DragEvent<HTMLElement>): void;
+  onDragOver(event: DragEvent<HTMLElement>): void;
+  onDrop(event: DragEvent<HTMLElement>): void;
   sidebar: ReactNode;
 }) {
   return (
-    <main className="flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <main
+      className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground"
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       {sidebar}
       {children}
+      {dropActive ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center border-2 border-dashed border-ring bg-background/70 text-sm font-medium text-foreground">
+          파일을 놓으면 업로드 후 첨부됩니다.
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -374,4 +480,34 @@ function ChatPane({
       {composer}
     </section>
   );
+}
+
+function hasDraggedFiles(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function hasDraggedFileMention(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes(
+    "application/x-minimal-agent-file",
+  );
+}
+
+function previewIsAffected(file: FsListItem, activePath: string | null) {
+  if (!activePath) {
+    return false;
+  }
+  if (file.type === "file") {
+    return normalizeWorkspacePath(activePath) === normalizeWorkspacePath(file.path);
+  }
+  const parent = normalizeWorkspacePath(file.path);
+  const child = normalizeWorkspacePath(activePath);
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+function normalizeWorkspacePath(path: string) {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }

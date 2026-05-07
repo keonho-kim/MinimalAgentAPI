@@ -49,6 +49,14 @@ SKILLS_MIDDLEWARE_DISPLAY = DisplayInfo(
     pending_message="AGENT가 workspace 스킬 확인을 준비합니다.",
 )
 
+OFFICE_BINARY_READ_GUARD_DISPLAY = DisplayInfo(
+    label="문서 읽기 보호",
+    running_message="AGENT가 문서 읽기 방식을 확인합니다.",
+    completed_message="AGENT가 문서 읽기 방식 확인을 완료했습니다.",
+    error_message="AGENT가 문서 읽기 방식 확인 중 오류가 발생했습니다.",
+    pending_message="AGENT가 문서 읽기 방식 확인을 준비합니다.",
+)
+
 INTERNAL_MIDDLEWARE_DISPLAY = DisplayInfo(
     label="내부 작업",
     running_message="AGENT가 내부 작업을 진행합니다.",
@@ -133,11 +141,21 @@ TOOL_DISPLAY_MAP: dict[str, DisplayInfo] = {
     "SkillsMiddleware": SKILLS_MIDDLEWARE_DISPLAY,
     "SkillsMiddleware.before_agent": SKILLS_MIDDLEWARE_DISPLAY,
     "SkillsMiddleware.after_agent": SKILLS_MIDDLEWARE_DISPLAY,
-    "answer_docx_question": standard_display("DOCX 질문 답변"),
-    "answer_hwpx_question": standard_display("HWPX 질문 답변"),
-    "answer_pptx_question": standard_display("PPTX 질문 답변"),
-    "answer_pdf_question": standard_display("PDF 질문 답변"),
-    "answer_xlsx_question": standard_display("XLSX 질문 답변"),
+    "OfficeBinaryReadGuardMiddleware": OFFICE_BINARY_READ_GUARD_DISPLAY,
+    "OfficeBinaryReadGuardMiddleware.before_agent": OFFICE_BINARY_READ_GUARD_DISPLAY,
+    "OfficeBinaryReadGuardMiddleware.after_agent": OFFICE_BINARY_READ_GUARD_DISPLAY,
+    "get_today": DisplayInfo(
+        label="오늘 날짜 확인",
+        running_message="AGENT가 오늘 날짜를 확인합니다.",
+        completed_message="AGENT가 오늘 날짜 확인을 완료했습니다.",
+        error_message="AGENT가 오늘 날짜 확인 중 오류가 발생했습니다.",
+        pending_message="AGENT가 오늘 날짜 확인을 준비합니다.",
+    ),
+    "read_docx_file": standard_display("DOCX 읽기"),
+    "read_hwpx_file": standard_display("HWPX 읽기"),
+    "read_pptx_file": standard_display("PPTX 읽기"),
+    "read_pdf_file": standard_display("PDF 읽기"),
+    "read_xlsx_file": standard_display("XLSX 읽기"),
     "edit_docx": standard_display("DOCX 수정"),
     "edit_hwpx": standard_display("HWPX 수정"),
     "edit_pptx": standard_display("PPTX 수정"),

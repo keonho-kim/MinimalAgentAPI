@@ -4,11 +4,17 @@ import tomllib
 from pathlib import Path
 
 
-def set_config(file_name: str = "env.toml") -> None:
+def set_config(file_name: str = "env.backend.toml") -> None:
     config_file = _find_config_file(file_name)
 
     with config_file.open("rb") as f:
         data = tomllib.load(f)
+
+        # LOAD SERVING CONFIG
+        _serving_config = data.get("serving", {})
+        os.environ["MINIAL_AGENT_MOUNT_UI"] = str(
+            _serving_config.get("mount_ui", True)
+        ).lower()
 
         # LOAD FS CONFIG
         _fs_config = data.get("fs")

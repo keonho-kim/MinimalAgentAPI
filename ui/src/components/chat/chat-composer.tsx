@@ -1,288 +1,371 @@
-import { Loader2, Paperclip, Send, X } from "lucide-react";
-import { memo, useRef, useState } from "react";
+import {
+  forwardRef,
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import type {
   ChangeEvent,
   DragEvent,
   FormEvent,
-  KeyboardEvent,
-  RefObject,
+  KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { ArrowUp, Loader2, Paperclip } from "lucide-react";
 
-import type { FsListItem, SkillListItem } from "@/lib/api";
-import type {
-  FileMentionAttachment,
-  FileMentionRange,
+import {
+  composerPayloadFromText,
+  type ComposerEditorHandle,
+  type ComposerEditorRuntimeHandle,
+  type ComposerSubmitPayload,
+} from "@/lib/composer-editor";
+import {
+  fileMentionAttachmentFromDragPayload,
+  readFileMentionDragPayload,
+  type FileMentionAttachment,
 } from "@/lib/file-mentions";
-import type { MentionStatus } from "@/hooks/use-file-mentions";
+import {
+  loadChatComposerEditorComponent,
+  preloadChatComposerEditor,
+} from "@/components/chat/chat-composer-loader";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { FileMentionSuggestions } from "@/components/chat/file-mention-suggestions";
-import { SkillMentionSuggestions } from "@/components/chat/skill-mention-suggestions";
 import { cn } from "@/lib/utils";
 
-export const ChatComposer = memo(function ChatComposer({
-  disabled,
-  mentionActive,
-  mentionIndex,
-  mentionMatches,
-  mentionStatus,
-  message,
-  mentionRanges,
-  uploadAttachments,
-  uploadError,
-  uploadPending,
-  skillMentionActive,
-  skillMentionIndex,
-  skillMentionMatches,
-  skillMentionStatus,
-  textareaRef,
-  onCursorSync,
-  onMentionSelect,
-  onSkillMentionSelect,
-  onMessageChange,
-  onMentionKeyDown,
-  onSkillMentionKeyDown,
-  onUploadAttachmentRemove,
-  onUploadFiles,
-  onSubmit,
-}: {
+export type { ComposerEditorHandle, ComposerSubmitPayload };
+
+type ChatComposerProps = {
   disabled: boolean;
-  mentionActive: boolean;
-  mentionIndex: number;
-  mentionMatches: FsListItem[];
-  mentionStatus: MentionStatus;
-  message: string;
-  mentionRanges: FileMentionRange[];
-  uploadAttachments: FileMentionAttachment[];
+  sessionUuid: string;
   uploadError: string | null;
   uploadPending: boolean;
-  skillMentionActive: boolean;
-  skillMentionIndex: number;
-  skillMentionMatches: SkillListItem[];
-  skillMentionStatus: MentionStatus;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onCursorSync(element: HTMLTextAreaElement): void;
-  onMentionSelect(file: FsListItem): void;
-  onSkillMentionSelect(skill: SkillListItem): void;
-  onMessageChange(value: string): void;
-  onMentionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void;
-  onSkillMentionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void;
-  onUploadAttachmentRemove(id: string): void;
+  userId: string;
   onUploadFiles(files: File[]): void;
-  onSubmit(event: FormEvent<HTMLFormElement>): void;
-}) {
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  onSubmit(event: FormEvent<HTMLFormElement>, payload: ComposerSubmitPayload): Promise<boolean>;
+};
 
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    onMentionKeyDown(event);
-    if (event.defaultPrevented) {
-      return;
+const LazyChatComposerEditor = lazy(loadChatComposerEditorComponent);
+
+export const ChatComposer = memo(
+  forwardRef<ComposerEditorHandle, ChatComposerProps>(function ChatComposer(
+    {
+      disabled,
+      sessionUuid,
+      uploadError,
+      uploadPending,
+      userId,
+      onUploadFiles,
+      onSubmit,
+    },
+    ref,
+  ) {
+    const [dragActive, setDragActive] = useState(false);
+    const [editorRequested, setEditorRequested] = useState(false);
+    const [editorEmpty, setEditorEmpty] = useState(true);
+    const [fallbackText, setFallbackText] = useState("");
+    const [pendingAttachments, setPendingAttachments] = useState<
+      FileMentionAttachment[]
+    >([]);
+    const editorRef = useRef<ComposerEditorRuntimeHandle | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const formRef = useRef<HTMLFormElement | null>(null);
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+    const requestEditor = useCallback(() => {
+      setEditorRequested(true);
+      preloadChatComposerEditor();
+    }, []);
+
+    useEffect(() => {
+      const idleWindow = window as Window & {
+        cancelIdleCallback?: (handle: number) => void;
+        requestIdleCallback?: (
+          callback: () => void,
+          options?: { timeout: number },
+        ) => number;
+      };
+
+      if (idleWindow.requestIdleCallback) {
+        const handle = idleWindow.requestIdleCallback(requestEditor, {
+          timeout: 1500,
+        });
+        return () => idleWindow.cancelIdleCallback?.(handle);
+      }
+
+      const timeout = window.setTimeout(requestEditor, 600);
+      return () => window.clearTimeout(timeout);
+    }, [requestEditor]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        clear() {
+          setFallbackText("");
+          setEditorEmpty(true);
+          setPendingAttachments([]);
+          editorRef.current?.clear();
+        },
+        focus() {
+          requestEditor();
+          if (editorRef.current) {
+            editorRef.current.focus();
+            return;
+          }
+          textareaRef.current?.focus();
+        },
+        insertFileMentions(attachments) {
+          if (!attachments.length) {
+            return;
+          }
+
+          requestEditor();
+          if (editorRef.current) {
+            editorRef.current.insertFileMentions(attachments);
+            return;
+          }
+          setPendingAttachments((current) => [...current, ...attachments]);
+        },
+      }),
+      [requestEditor],
+    );
+
+    const setEditorRef = useCallback(
+      (handle: ComposerEditorRuntimeHandle | null) => {
+        editorRef.current = handle;
+      },
+      [],
+    );
+
+    const clearPendingAttachments = useCallback(() => {
+      setPendingAttachments([]);
+    }, []);
+
+    function handleDragOver(event: DragEvent<HTMLFormElement>) {
+      if (!hasDraggedFiles(event) && !hasDraggedFileMention(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (!disabled) {
+        setDragActive(true);
+      }
     }
-    onSkillMentionKeyDown(event);
-    if (event.defaultPrevented) {
-      return;
+
+    function handleDragLeave(event: DragEvent<HTMLFormElement>) {
+      event.stopPropagation();
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        setDragActive(false);
+      }
     }
 
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      disabled ||
-      isComposing(event)
-    ) {
-      return;
-    }
+    function handleDrop(event: DragEvent<HTMLFormElement>) {
+      const fileMentionPayload = readFileMentionDragPayload(event.dataTransfer);
+      if (fileMentionPayload) {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragActive(false);
+        if (!disabled) {
+          requestEditor();
+          const attachment =
+            fileMentionAttachmentFromDragPayload(fileMentionPayload);
+          if (editorRef.current) {
+            editorRef.current.insertFileMentions([attachment]);
+          } else {
+            setPendingAttachments((current) => [...current, attachment]);
+          }
+        }
+        return;
+      }
 
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  }
+      if (!hasDraggedFiles(event)) {
+        return;
+      }
 
-  function handleDragOver(event: DragEvent<HTMLFormElement>) {
-    if (!hasDraggedFiles(event)) {
-      return;
-    }
-
-    event.preventDefault();
-    if (!disabled) {
-      setDragActive(true);
-    }
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLFormElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      event.preventDefault();
+      event.stopPropagation();
       setDragActive(false);
-    }
-  }
+      if (disabled) {
+        return;
+      }
 
-  function handleDrop(event: DragEvent<HTMLFormElement>) {
-    if (!hasDraggedFiles(event)) {
-      return;
-    }
-
-    event.preventDefault();
-    setDragActive(false);
-    if (disabled) {
-      return;
+      requestEditor();
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length) {
+        onUploadFiles(files);
+      }
     }
 
-    const files = Array.from(event.dataTransfer.files);
-    if (!files.length) {
-      return;
+    function handleFallbackKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+      if (event.key !== "Enter" || event.shiftKey || disabled || isComposing(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      formRef.current?.requestSubmit();
     }
 
-    onUploadFiles(files);
-  }
+    function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+      const files = Array.from(event.target.files ?? []);
+      event.target.value = "";
+      if (!files.length || disabled) {
+        return;
+      }
 
-  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!files.length || disabled) {
-      return;
+      requestEditor();
+      onUploadFiles(files);
     }
 
-    onUploadFiles(files);
-  }
+    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (pendingAttachments.length) {
+        requestEditor();
+        return;
+      }
 
-  return (
-    <form
-      className="shrink-0 border-t bg-card p-3 sm:p-4"
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-      onSubmit={onSubmit}
-    >
-      <div className="mx-auto flex w-full max-w-4xl items-end gap-2 sm:gap-3">
-        <div className="relative min-w-0 flex-1">
-          {mentionActive ? (
-            <FileMentionSuggestions
-              activeIndex={mentionIndex}
-              matches={mentionMatches}
-              status={mentionStatus}
-              onSelect={onMentionSelect}
-            />
-          ) : null}
-          {skillMentionActive ? (
-            <SkillMentionSuggestions
-              activeIndex={skillMentionIndex}
-              matches={skillMentionMatches}
-              status={skillMentionStatus}
-              onSelect={onSkillMentionSelect}
-            />
-          ) : null}
-          <div
-            className={cn(
-              "rounded-md border bg-card transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
-              dragActive && "border-ring bg-accent/40",
-              disabled && "opacity-50",
-            )}
-          >
-            {uploadAttachments.length || uploadPending || uploadError ? (
-              <div className="flex min-h-8 flex-wrap items-center gap-1.5 px-3 pt-2">
-                {uploadAttachments.map((attachment) => (
-                  <span className="file-mention-pill pr-1" key={attachment.id}>
-                    <span className="truncate">{attachment.label}</span>
-                    <Button
-                      className="ml-1 size-5 rounded-full"
-                      disabled={uploadPending}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                      onClick={() => onUploadAttachmentRemove(attachment.id)}
-                    >
-                      <X data-icon="inline-start" />
-                      <span className="sr-only">Remove file</span>
-                    </Button>
-                  </span>
-                ))}
-                {uploadPending ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="animate-spin" data-icon="inline-start" />
-                    Uploading
-                  </span>
-                ) : null}
-                {uploadError ? (
-                  <span className="text-xs text-destructive">{uploadError}</span>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="flex min-h-10 items-end">
-              <input
-                className="hidden"
-                multiple
-                ref={fileInputRef}
-                type="file"
-                onChange={handleFileInputChange}
-              />
-              <Textarea
-                className="max-h-32 min-h-10 resize-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                disabled={disabled}
-                onChange={(event) => {
-                  onMessageChange(event.target.value);
-                  onCursorSync(event.currentTarget);
-                }}
-                onClick={(event) => onCursorSync(event.currentTarget)}
-                onKeyDown={handleKeyDown}
-                onKeyUp={(event) => onCursorSync(event.currentTarget)}
-                placeholder="메시지를 입력하세요"
-                ref={textareaRef}
-                rows={1}
-                value={message}
-              />
-              <Button
-                className="mb-1 mr-1 size-8 shrink-0 text-muted-foreground"
-                disabled={disabled}
-                size="icon"
-                type="button"
-                variant="ghost"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploadPending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Paperclip />
-                )}
-                <span className="sr-only">Attach files</span>
-              </Button>
-            </div>
-          </div>
-          {mentionRanges.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {mentionRanges.map((range) => (
-                <span
-                  className={
-                    range.kind === "skill"
-                      ? "skill-mention-pill"
-                      : "file-mention-pill"
-                  }
-                  key={range.id}
-                >
-                  {range.label}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        <Button
-          className="h-10 shrink-0 px-4 sm:px-5"
-          disabled={disabled}
-          type="submit"
-        >
-          {disabled ? (
-            <Loader2 className="animate-spin" data-icon="inline-start" />
-          ) : (
-            <Send data-icon="inline-start" />
+      const payload =
+        editorRef.current?.getPayload() ?? composerPayloadFromText(fallbackText);
+      const submitted = await onSubmit(event, payload);
+      if (submitted) {
+        setFallbackText("");
+        setEditorEmpty(true);
+        setPendingAttachments([]);
+        editorRef.current?.clear();
+      }
+    }
+
+    const fallbackEditor = (
+      <textarea
+        aria-label="Message"
+        className="max-h-40 min-h-24 w-full resize-none border-0 bg-transparent px-7 pb-2 pt-7 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-0"
+        disabled={disabled}
+        placeholder="무엇을 도와드릴까요?"
+        ref={textareaRef}
+        rows={1}
+        value={fallbackText}
+        onChange={(event) => setFallbackText(event.target.value)}
+        onFocus={requestEditor}
+        onKeyDown={handleFallbackKeyDown}
+        onPointerEnter={requestEditor}
+      />
+    );
+    const submitDisabled = disabled || pendingAttachments.length > 0;
+    const hasComposerContent =
+      pendingAttachments.length > 0 ||
+      fallbackText.trim().length > 0 ||
+      !editorEmpty;
+
+    return (
+      <form
+        className="shrink-0 bg-background px-3 pb-4 pt-2 sm:px-4 sm:pb-5"
+        ref={formRef}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onPointerEnter={requestEditor}
+        onSubmit={handleSubmit}
+      >
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-4xl flex-col rounded-[28px] border bg-card shadow-[0_8px_28px_rgba(31,35,32,0.06)] transition-colors focus-within:border-ring",
+            dragActive && "border-ring bg-accent/30",
+            disabled && "opacity-50",
           )}
-          Send
-        </Button>
-      </div>
-    </form>
-  );
-});
+        >
+          <input
+            className="hidden"
+            multiple
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileInputChange}
+          />
+          <div className="composer-editor relative min-h-24 min-w-0">
+            {editorRequested ? (
+              <Suspense fallback={fallbackEditor}>
+                <LazyChatComposerEditor
+                  disabled={disabled}
+                  initialText={fallbackText}
+                  pendingAttachments={pendingAttachments}
+                  ref={setEditorRef}
+                  sessionUuid={sessionUuid}
+                  userId={userId}
+                  onEmptyChange={setEditorEmpty}
+                  onPendingAttachmentsFlushed={clearPendingAttachments}
+                  onSubmitRequest={() => formRef.current?.requestSubmit()}
+                />
+              </Suspense>
+            ) : (
+              fallbackEditor
+            )}
+          </div>
+          <div className="flex min-h-14 items-center gap-3 px-5 pb-4">
+            <Button
+              className="size-10 shrink-0 text-muted-foreground hover:text-foreground"
+              disabled={disabled}
+              size="icon"
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                requestEditor();
+                fileInputRef.current?.click();
+              }}
+            >
+              {uploadPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Paperclip />
+              )}
+              <span className="sr-only">Attach files</span>
+            </Button>
+            <div className="min-w-0 flex-1">
+              {uploadPending ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                  Uploading
+                </span>
+              ) : null}
+              {uploadError ? (
+                <span className="text-xs text-destructive">{uploadError}</span>
+              ) : null}
+            </div>
+            <Button
+              className={cn(
+                "size-9 shrink-0 rounded-full text-background transition-colors disabled:bg-muted disabled:text-muted-foreground",
+                hasComposerContent
+                  ? "bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  : "bg-foreground/50 hover:bg-foreground/65",
+              )}
+              disabled={submitDisabled}
+              size="icon"
+              type="submit"
+            >
+              {disabled ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <ArrowUp />
+              )}
+              <span className="sr-only">Send</span>
+            </Button>
+          </div>
+        </div>
+      </form>
+    );
+  }),
+);
 
-function isComposing(event: KeyboardEvent<HTMLTextAreaElement>) {
+function isComposing(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
   return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
 }
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function hasDraggedFileMention(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes(
+    "application/x-minimal-agent-file",
+  );
 }

@@ -11,7 +11,7 @@ from minial_agent.integrations.upload import ensure_upload_workspace
 def test_preview_metadata_for_supported_file_types(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
     monkeypatch.setattr(
-        "minial_agent.api.fs.service.convert_to_pdf",
+        "minial_agent.integrations.fs.preview.convert_to_pdf",
         _fake_convert_to_pdf,
     )
     workspace = ensure_upload_workspace(tmp_path / "user")

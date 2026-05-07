@@ -3,22 +3,16 @@ import type { FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import type { ChatMessage, HitlRequest } from "@/lib/api";
+import type { ComposerSubmitPayload } from "@/lib/composer-editor";
 import { createChatStream, createSessionTitle } from "@/lib/api";
 import {
   appendAgentUiEvent,
+  completeActivityBlocks,
   errorMessage as createErrorMessage,
   hydrateSessionMessages,
   userMessage,
 } from "@/lib/chat-messages";
 import type { UiMessage } from "@/lib/chat-messages";
-import {
-  prependFileMentionAttachments,
-  serializeFileMentions,
-  syncFileMentionRanges,
-  trimFileMentionText,
-  validFileMentionRanges,
-} from "@/lib/file-mentions";
-import type { FileMentionAttachment, FileMentionRange } from "@/lib/file-mentions";
 import {
   buildSessionTitleContext,
   firstCompletedExchangeTitleContext,
@@ -54,13 +48,10 @@ export function useChatStream({
   onStreamCreated(streamId: string): void;
   onStreamCleared(): void;
 }) {
-  const [message, setMessage] = useState("");
-  const [mentionRanges, setMentionRanges] = useState<FileMentionRange[]>([]);
   const [status, setStatus] = useState("Idle");
   const [uiMessages, setUiMessages] = useState<UiMessage[]>(() =>
     hydrateSessionMessages(userId, sessionUuid),
   );
-  const messageRef = useRef(message);
   const titleRequestKeysRef = useRef(new Set<string>());
   const eventSourceRef = useRef<EventSource | null>(null);
   const streamMutation = useMutation({
@@ -89,45 +80,10 @@ export function useChatStream({
 
   const loadSession = useCallback(
     (nextUuid: string) => {
-      messageRef.current = "";
-      setMessage("");
-      setMentionRanges([]);
       setUiMessages(hydrateSessionMessages(userId, nextUuid));
       setStatus("Idle");
     },
     [userId],
-  );
-
-  const updateMessage = useCallback((nextValue: string) => {
-    const previousValue = messageRef.current;
-    messageRef.current = nextValue;
-    setMessage(nextValue);
-    setMentionRanges((current) =>
-      syncFileMentionRanges({
-        previousValue,
-        nextValue,
-        ranges: current,
-      }),
-    );
-  }, []);
-
-  const insertMentionRange = useCallback(
-    (nextValue: string, range: FileMentionRange) => {
-      const previousValue = messageRef.current;
-      messageRef.current = nextValue;
-      setMessage(nextValue);
-      setMentionRanges((current) =>
-        validFileMentionRanges(nextValue, [
-          ...syncFileMentionRanges({
-            previousValue,
-            nextValue,
-            ranges: current,
-          }),
-          range,
-        ]),
-      );
-    },
-    [],
   );
 
   const markResuming = useCallback(() => {
@@ -198,30 +154,18 @@ export function useChatStream({
   const submitMessage = useCallback(
     async (
       event: FormEvent<HTMLFormElement>,
-      attachments: FileMentionAttachment[] = [],
+      payload: ComposerSubmitPayload,
     ) => {
       event.preventDefault();
-      const displayMessage = trimFileMentionText(message, mentionRanges);
-      const displayContent = displayMessage.value;
-      const messageWithAttachments = prependFileMentionAttachments({
-        value: displayContent,
-        ranges: displayMessage.ranges,
-        attachments,
-      });
-      const serializedContent = serializeFileMentions(
-        messageWithAttachments.value,
-        messageWithAttachments.ranges,
-      );
+      const displayContent = payload.displayContent;
+      const serializedContent = payload.serializedContent;
 
-      if (!displayContent || chatBlocked) {
+      if (!serializedContent.trim() || chatBlocked) {
         return false;
       }
 
       closeStream();
       onBeforeSubmit();
-      messageRef.current = "";
-      setMessage("");
-      setMentionRanges([]);
       setStatus("Streaming");
 
       const history = getSessionHistory(userId, sessionUuid);
@@ -233,8 +177,8 @@ export function useChatStream({
       setUiMessages((current) => [
         ...current,
         userMessage(
-          messageWithAttachments.value,
-          messageWithAttachments.ranges,
+          displayContent,
+          payload.fileMentions,
         ),
       ]);
 
@@ -286,6 +230,7 @@ export function useChatStream({
               });
             }
             setStatus("Idle");
+            setUiMessages((current) => completeActivityBlocks(current));
             onStreamCleared();
             closeStream();
           },
@@ -313,8 +258,6 @@ export function useChatStream({
       chatBlocked,
       closeStream,
       currentSessionTitle,
-      mentionRanges,
-      message,
       onBeforeSubmit,
       onHitlRequest,
       onHitlResumed,
@@ -332,12 +275,8 @@ export function useChatStream({
     chatBlocked,
     closeStream,
     generateTitleForSession,
-    insertMentionRange,
-    mentionRanges,
     loadSession,
     markResuming,
-    message,
-    setMessage: updateMessage,
     status,
     submitMessage,
     uiMessages,

@@ -24,6 +24,8 @@ env/
 env.local.toml
 env.*.local.toml
 env.toml
+env.backend.toml
+env.ui.toml
 
 # Editor and OS files
 .DS_Store

@@ -1,13 +1,4 @@
-import type { FsListItem, SkillListItem } from "@/lib/api";
-import { createId } from "@/lib/id";
-
 export type MentionKind = "file" | "skill";
-
-export type FileMentionSearchToken = {
-  start: number;
-  end: number;
-  query: string;
-};
 
 export type FileMentionRange = {
   kind: MentionKind;
@@ -31,139 +22,60 @@ export type FileMentionAttachment = {
   href: string;
 };
 
-export function findActiveFileMention(
-  value: string,
-  cursorIndex: number,
-): FileMentionSearchToken | null {
-  return findActiveMention(value, cursorIndex, "@");
-}
+export const FILE_MENTION_DRAG_MIME = "application/x-minimal-agent-file";
 
-export function findActiveSkillMention(
-  value: string,
-  cursorIndex: number,
-): FileMentionSearchToken | null {
-  return findActiveMention(value, cursorIndex, "$");
-}
+export type FileMentionDragPayload = {
+  name: string;
+  path: string;
+};
 
-function findActiveMention(
-  value: string,
-  cursorIndex: number,
-  trigger: "@" | "$",
-): FileMentionSearchToken | null {
-  if (cursorIndex < 0 || cursorIndex > value.length) {
-    return null;
-  }
-
-  const atIndex = value.lastIndexOf(trigger, Math.max(cursorIndex - 1, 0));
-  if (atIndex === -1) {
-    return null;
-  }
-
-  const prefix = value[atIndex - 1];
-  if (prefix && !/\s/.test(prefix)) {
-    return null;
-  }
-
-  const beforeCursor = value.slice(atIndex + 1, cursorIndex);
-  if (/[\s@$]/.test(beforeCursor)) {
-    return null;
-  }
-
-  const afterCursor = value.slice(cursorIndex);
-  const tokenTail = afterCursor.match(/^[^\s@$]*/)?.[0] ?? "";
-  const end = cursorIndex + tokenTail.length;
-  const query = value.slice(atIndex + 1, end);
-
+export function fileMentionAttachmentFromDragPayload(
+  payload: FileMentionDragPayload,
+): FileMentionAttachment {
   return {
-    start: atIndex,
-    end,
-    query,
+    id: `drag:${payload.path}`,
+    label: payload.name,
+    href: toAgentFileHref(payload.path),
   };
 }
 
-export function replaceFileMention(
-  value: string,
-  token: FileMentionSearchToken,
-  file: FsListItem,
-) {
-  const mention = file.name;
-  const nextValue = `${value.slice(0, token.start)}${mention}${value.slice(
-    token.end,
-  )}`;
-  const mentionStart = token.start;
-  const mentionEnd = mentionStart + mention.length;
-
-  return {
-    value: nextValue,
-    cursorIndex: mentionEnd,
-    mention: {
-      id: createId(),
-      kind: "file",
-      start: mentionStart,
-      end: mentionEnd,
-      label: file.name,
-      href: toAgentFileHref(file.path),
-    } satisfies FileMentionRange,
-  };
+export function markdownFileMention(value: FileMentionAttachment) {
+  return `[${escapeMarkdownLabel(displayFileMentionLabel(value.label))}](${toAgentFileHref(
+    value.href,
+  )})`;
 }
 
-export function replaceSkillMention(
-  value: string,
-  token: FileMentionSearchToken,
-  skill: SkillListItem,
-) {
-  const mention = skill.name;
-  const nextValue = `${value.slice(0, token.start)}${mention}${value.slice(
-    token.end,
-  )}`;
-  const mentionStart = token.start;
-  const mentionEnd = mentionStart + mention.length;
+export function readFileMentionDragPayload(
+  dataTransfer: DataTransfer,
+): FileMentionDragPayload | null {
+  const raw = dataTransfer.getData(FILE_MENTION_DRAG_MIME);
+  if (!raw) {
+    return null;
+  }
 
-  return {
-    value: nextValue,
-    cursorIndex: mentionEnd,
-    mention: {
-      id: createId(),
-      kind: "skill",
-      start: mentionStart,
-      end: mentionEnd,
-      label: skill.name,
-      href: skill.path,
-    } satisfies FileMentionRange,
-  };
-}
-
-export function syncFileMentionRanges({
-  previousValue,
-  nextValue,
-  ranges,
-}: {
-  previousValue: string;
-  nextValue: string;
-  ranges: FileMentionRange[];
-}) {
-  const prefixLength = commonPrefixLength(previousValue, nextValue);
-  const suffixLength = commonSuffixLength(previousValue, nextValue, prefixLength);
-  const previousChangedEnd = previousValue.length - suffixLength;
-  const delta = nextValue.length - previousValue.length;
-  const nextRanges: FileMentionRange[] = [];
-
-  for (const range of ranges) {
-    if (range.end <= prefixLength) {
-      nextRanges.push(range);
-      continue;
+  try {
+    const parsed = JSON.parse(raw) as Partial<FileMentionDragPayload>;
+    if (!parsed.name?.trim() || !parsed.path?.trim()) {
+      return null;
     }
-
-    if (range.start >= previousChangedEnd) {
-      nextRanges.push({
-        ...range,
-        start: range.start + delta,
-        end: range.end + delta,
-      });
-    }
+    return {
+      name: parsed.name,
+      path: parsed.path,
+    };
+  } catch {
+    return null;
   }
+}
 
-  return validFileMentionRanges(nextValue, nextRanges);
+export function writeFileMentionDragPayload(
+  dataTransfer: DataTransfer,
+  payload: FileMentionDragPayload,
+  options: { effectAllowed?: DataTransfer["effectAllowed"] } = {},
+) {
+  const attachment = fileMentionAttachmentFromDragPayload(payload);
+  dataTransfer.effectAllowed = options.effectAllowed ?? "copy";
+  dataTransfer.setData(FILE_MENTION_DRAG_MIME, JSON.stringify(payload));
+  dataTransfer.setData("text/plain", markdownFileMention(attachment));
 }
 
 export function serializeFileMentions(value: string, ranges: FileMentionRange[]) {
@@ -178,61 +90,6 @@ export function serializeFileMentions(value: string, ranges: FileMentionRange[])
   }
 
   return `${output}${value.slice(cursor)}`;
-}
-
-export function prependFileMentionAttachments({
-  value,
-  ranges,
-  attachments,
-}: {
-  value: string;
-  ranges: FileMentionRange[];
-  attachments: FileMentionAttachment[];
-}) {
-  const validAttachments = attachments.filter(
-    (attachment) => attachment.label.trim() && attachment.href.trim(),
-  );
-  if (!validAttachments.length) {
-    return {
-      value,
-      ranges: validFileMentionRanges(value, ranges),
-    };
-  }
-
-  let prefix = "";
-  const attachmentRanges: FileMentionRange[] = [];
-  for (const attachment of validAttachments) {
-    if (prefix) {
-      prefix += " ";
-    }
-    const start = prefix.length;
-    prefix += attachment.label;
-    attachmentRanges.push({
-      id: attachment.id,
-      kind: "file",
-      start,
-      end: prefix.length,
-      label: attachment.label,
-      href: toAgentFileHref(attachment.href),
-    });
-  }
-
-  const separator = value ? "\n" : "";
-  const nextValue = `${prefix}${separator}${value}`;
-  const offset = prefix.length + separator.length;
-  const shiftedRanges = ranges.map((range) => ({
-    ...range,
-    start: range.start + offset,
-    end: range.end + offset,
-  }));
-
-  return {
-    value: nextValue,
-    ranges: validFileMentionRanges(nextValue, [
-      ...attachmentRanges,
-      ...shiftedRanges,
-    ]),
-  };
 }
 
 export function splitLeadingFileMentionAttachments({
@@ -324,28 +181,6 @@ export function splitLeadingMarkdownFileMentionAttachments(value: string) {
   };
 }
 
-export function trimFileMentionText(value: string, ranges: FileMentionRange[]) {
-  const start = value.search(/\S/);
-  if (start === -1) {
-    return { value: "", ranges: [] };
-  }
-
-  const end = value.trimEnd().length;
-  const nextValue = value.slice(start, end);
-  const nextRanges = ranges
-    .filter((range) => range.start >= start && range.end <= end)
-    .map((range) => ({
-      ...range,
-      start: range.start - start,
-      end: range.end - start,
-    }));
-
-  return {
-    value: nextValue,
-    ranges: validFileMentionRanges(nextValue, nextRanges),
-  };
-}
-
 export function validFileMentionRanges(
   value: string,
   ranges: FileMentionRange[],
@@ -393,7 +228,7 @@ export function parseMarkdownFileMentions(value: string): MarkdownFileMention[] 
     }
 
     const hrefStart = labelEnd + 2;
-    const hrefEnd = findUnescaped(value, ")", hrefStart);
+    const hrefEnd = findMarkdownHrefEnd(value, hrefStart);
     if (hrefEnd === -1) {
       index = start + 1;
       continue;
@@ -425,7 +260,7 @@ export function normalizeMarkdownFileMentionHrefs(value: string) {
   let output = "";
   for (const mention of mentions) {
     output += value.slice(cursor, mention.start);
-    output += `[${escapeMarkdownLabel(mention.label)}](${mention.href.replaceAll(
+    output += `[${escapeMarkdownLabel(displayFileMentionLabel(mention.label))}](${mention.href.replaceAll(
       " ",
       "%20",
     )})`;
@@ -474,6 +309,10 @@ export function toAgentFileHref(path: string) {
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
 }
 
+export function displayFileMentionLabel(label: string) {
+  return label.trim().replace(/^\/+/, "");
+}
+
 function escapeMarkdownLabel(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
@@ -488,11 +327,7 @@ function findUnescaped(value: string, target: string, start: number) {
       continue;
     }
 
-    let slashCount = 0;
-    for (let previous = index - 1; previous >= 0 && value[previous] === "\\"; previous -= 1) {
-      slashCount += 1;
-    }
-    if (slashCount % 2 === 0) {
+    if (!isEscaped(value, index)) {
       return index;
     }
   }
@@ -500,26 +335,40 @@ function findUnescaped(value: string, target: string, start: number) {
   return -1;
 }
 
-function commonPrefixLength(left: string, right: string) {
-  const length = Math.min(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    if (left[index] !== right[index]) {
+function findMarkdownHrefEnd(value: string, start: number) {
+  let parenDepth = 0;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (isEscaped(value, index)) {
+      continue;
+    }
+
+    if (char === "(") {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (char === ")") {
+      if (parenDepth > 0) {
+        parenDepth -= 1;
+        continue;
+      }
       return index;
     }
   }
-  return length;
+
+  return -1;
 }
 
-function commonSuffixLength(left: string, right: string, prefixLength: number) {
-  let suffixLength = 0;
-  const maxLength = Math.min(left.length, right.length) - prefixLength;
-
-  while (
-    suffixLength < maxLength &&
-    left[left.length - suffixLength - 1] === right[right.length - suffixLength - 1]
+function isEscaped(value: string, index: number) {
+  let slashCount = 0;
+  for (
+    let previous = index - 1;
+    previous >= 0 && value[previous] === "\\";
+    previous -= 1
   ) {
-    suffixLength += 1;
+    slashCount += 1;
   }
-
-  return suffixLength;
+  return slashCount % 2 === 1;
 }

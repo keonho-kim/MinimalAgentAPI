@@ -36,6 +36,17 @@ export function useFilePreview({
     setOpen(true);
   }, []);
 
+  const closePreview = useCallback(
+    (path?: string) => {
+      if (path && activePath !== path) {
+        return;
+      }
+      setOpen(false);
+      setActiveFile(null);
+    },
+    [activePath],
+  );
+
   const refresh = useCallback(async () => {
     if (!activePath) {
       return;
@@ -45,6 +56,8 @@ export function useFilePreview({
 
   return {
     open,
+    activePath,
+    closePreview,
     openPreview,
     preview: previewQuery.data ?? null,
     refresh,

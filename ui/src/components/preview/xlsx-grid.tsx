@@ -19,9 +19,9 @@ export const XlsxGrid = memo(function XlsxGrid({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-4">
-          <table className="border-collapse bg-card text-sm">
+      <ScrollArea className="min-h-0 min-w-0 flex-1" horizontal>
+        <div className="min-w-full w-max p-4">
+          <table className="w-max border-collapse bg-card text-sm">
             <thead>
               <tr>
                 <th className="sticky left-0 top-0 z-20 size-8 border bg-muted" />

@@ -13,6 +13,7 @@ type SessionState = {
   sessionUuid: string;
   sessions: SessionSummary[];
   fileDrawerOpen: boolean;
+  fileDrawerWidth: number;
   setUserId(userId: string): void;
   setSessionUuid(sessionUuid: string): void;
   createSession(): SessionSummary;
@@ -20,11 +21,15 @@ type SessionState = {
   renameSession(uuid: string, title: string): void;
   touchSession(uuid: string): void;
   setFileDrawerOpen(open: boolean): void;
+  setFileDrawerWidth(width: number): void;
 };
 
 const DEFAULT_USER_ID = "local-user";
 export const DEFAULT_SESSION_TITLE = "New session";
 const MAX_SESSION_TITLE_LENGTH = 48;
+const DEFAULT_FILE_DRAWER_WIDTH = 760;
+const MIN_FILE_DRAWER_WIDTH = 320;
+const MAX_FILE_DRAWER_WIDTH = 950;
 
 export const useSessionStore = create<SessionState>((set) => {
   const userId = localStorage.getItem("minial:user-id") || DEFAULT_USER_ID;
@@ -35,6 +40,7 @@ export const useSessionStore = create<SessionState>((set) => {
     sessionUuid: initial.sessionUuid,
     sessions: initial.sessions,
     fileDrawerOpen: false,
+    fileDrawerWidth: getFileDrawerWidth(),
     setUserId(nextUserId) {
       const cleanUserId = nextUserId.trim() || DEFAULT_USER_ID;
       localStorage.setItem("minial:user-id", cleanUserId);
@@ -116,6 +122,11 @@ export const useSessionStore = create<SessionState>((set) => {
     setFileDrawerOpen(open) {
       set({ fileDrawerOpen: open });
     },
+    setFileDrawerWidth(width) {
+      const cleanWidth = clampFileDrawerWidth(width);
+      localStorage.setItem("minial:file-drawer-width", String(cleanWidth));
+      set({ fileDrawerWidth: cleanWidth });
+    },
   };
 });
 
@@ -185,6 +196,21 @@ function historyKey(userId: string, uuid: string) {
 
 function activeKey(userId: string) {
   return `minial:active-session:${userId}`;
+}
+
+function getFileDrawerWidth() {
+  const value = Number(localStorage.getItem("minial:file-drawer-width"));
+  if (!value || value === 420) {
+    return DEFAULT_FILE_DRAWER_WIDTH;
+  }
+  return clampFileDrawerWidth(value);
+}
+
+function clampFileDrawerWidth(width: number) {
+  return Math.min(
+    MAX_FILE_DRAWER_WIDTH,
+    Math.max(MIN_FILE_DRAWER_WIDTH, Math.round(width)),
+  );
 }
 
 function readJson<T>(key: string, fallback: T): T {

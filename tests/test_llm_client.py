@@ -8,6 +8,7 @@ from minial_agent.common.llm import client as llm_module
 
 
 LLM_ENV_KEYS = [
+    "MINIAL_AGENT_MOUNT_UI",
     "LLM_PROVIDER",
     "LLM_BASE_URL",
     "LLM_MODEL_NAME",
@@ -168,9 +169,12 @@ def test_llm_client_rejects_invalid_kwargs_json(monkeypatch) -> None:
 
 
 def test_config_loader_sets_llm_provider(tmp_path, monkeypatch) -> None:
-    config_file = tmp_path / "env.toml"
+    config_file = tmp_path / "env.backend.toml"
     config_file.write_text(
         """
+[serving]
+mount_ui=false
+
 [fs]
 workspace="./tmpWorkspace/"
 
@@ -190,8 +194,9 @@ top_p=0.9
 
     monkeypatch.chdir(tmp_path)
 
-    set_config("env.toml")
+    set_config("env.backend.toml")
 
+    assert os.environ["MINIAL_AGENT_MOUNT_UI"] == "false"
     assert os.environ["LLM_PROVIDER"] == "google"
     assert os.environ["LLM_BASE_URL"] == ""
     assert os.environ["LLM_MODEL_NAME"] == "gemini-2.5-flash"

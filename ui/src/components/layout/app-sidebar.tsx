@@ -5,7 +5,6 @@ import type { CSSProperties } from "react";
 import wordmarkUrl from "../../../assets/logo/logo.png";
 
 import type { SessionSummary } from "@/store/session-store";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -20,7 +19,6 @@ export const AppSidebar = memo(function AppSidebar({
   userId,
   sessionUuid,
   sessions,
-  status,
   onNewSession,
   onRemoveSession,
   onSwitchSession,
@@ -29,7 +27,6 @@ export const AppSidebar = memo(function AppSidebar({
   userId: string;
   sessionUuid: string;
   sessions: SessionSummary[];
-  status: string;
   onNewSession(): void;
   onRemoveSession(uuid: string): void;
   onSwitchSession(uuid: string): void;
@@ -107,10 +104,6 @@ export const AppSidebar = memo(function AppSidebar({
           ))}
         </div>
       </ScrollArea>
-
-      <Badge className="mt-4 w-fit bg-background text-muted-foreground" variant="outline">
-        {status}
-      </Badge>
     </aside>
   );
 });

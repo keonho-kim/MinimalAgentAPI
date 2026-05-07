@@ -1,28 +1,28 @@
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_docx.workflow.edit import (
     build_docx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.read import (
+from minial_agent.agents.tools.read_documents.docx import (
     build_docx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_hwpx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_hwpx.workflow.edit import (
     build_hwpx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_hwpx.workflow.read import (
+from minial_agent.agents.tools.read_documents.hwpx import (
     build_hwpx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.workflow.read import (
+from minial_agent.agents.tools.read_documents.pdf import (
     build_pdf_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pptx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.workflow.edit import (
     build_pptx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pptx.workflow.read import (
+from minial_agent.agents.tools.read_documents.pptx import (
     build_pptx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.workflow.edit import (
     build_xlsx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.read import (
+from minial_agent.agents.tools.read_documents.xlsx import (
     build_xlsx_read_workflow,
 )
 from minial_agent.integrations.upload import ensure_upload_workspace

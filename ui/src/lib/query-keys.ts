@@ -1,6 +1,6 @@
 export const queryKeys = {
-  files(userId: string, sessionUuid: string) {
-    return ["files", userId, sessionUuid] as const;
+  files(userId: string, sessionUuid: string, path = "/") {
+    return ["files", userId, sessionUuid, path] as const;
   },
   filePreview(userId: string, sessionUuid: string, path: string) {
     return ["file-preview", userId, sessionUuid, path] as const;

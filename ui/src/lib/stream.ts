@@ -1,3 +1,4 @@
+import { apiUrl } from "@/lib/backend-url";
 import type { HitlRequest } from "@/lib/api";
 
 export type AgentUiEvent =
@@ -36,7 +37,7 @@ export function openChatEventSource(
     onError(message: string): void;
   },
 ) {
-  const source = new EventSource(`/chat/stream/${streamId}`);
+  const source = new EventSource(apiUrl(`/chat/stream/${streamId}`));
 
   source.addEventListener("agent_ui", (streamEvent) => {
     handlers.onEvent(JSON.parse(streamEvent.data) as AgentUiEvent);

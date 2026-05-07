@@ -6,22 +6,19 @@ from deepagents.middleware.skills import _list_skills
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from minial_agent.agents.domain.office_file_agent.subagents.agent_docx.workflow.read import (
+from minial_agent.agents.tools.read_documents.docx import (
     build_docx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_pdf.agent import (
-    build_pdf_subagent,
-)
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.agent import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.agent import (
     build_xlsx_subagent,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.edit import (
+from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.workflow.edit import (
     build_xlsx_edit_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.agent_xlsx.workflow.read import (
+from minial_agent.agents.tools.read_documents.xlsx import (
     build_xlsx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_agent.subagents.utils import (
+from minial_agent.agents.utils import (
     scan as scan_module,
 )
 from minial_agent.common.utils import file_registry
@@ -571,16 +568,10 @@ def test_xlsx_read_workflow_rejects_malformed_sheet_scan(tmp_path) -> None:
         )
 
 
-def test_pdf_worker_exposes_read_only_tool() -> None:
-    tool_names = [tool.name for tool in build_pdf_subagent()["tools"]]
-
-    assert tool_names == ["answer_pdf_question"]
-
-
-def test_xlsx_worker_exposes_answer_and_edit_tools_only() -> None:
+def test_xlsx_worker_exposes_edit_tool_only() -> None:
     tool_names = [tool.name for tool in build_xlsx_subagent()["tools"]]
 
-    assert tool_names == ["answer_xlsx_question", "edit_xlsx"]
+    assert tool_names == ["edit_xlsx"]
 
 
 def _register_converted_file(
