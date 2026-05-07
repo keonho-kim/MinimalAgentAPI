@@ -68,7 +68,7 @@ def read_pptx_file(file_path: str, question: str, runtime: ToolRuntime) -> str:
 
 @tool
 def read_xlsx_file(file_path: str, question: str, runtime: ToolRuntime) -> str:
-    """Read an XLSX workbook through the converted sheet workflow."""
+    """Read XLSX workbook structure, sheet metadata, and explicit cell ranges."""
     try:
         workflow = build_xlsx_read_workflow(workspace_from_tool_runtime(runtime))
         result = workflow.invoke(
@@ -83,4 +83,3 @@ def read_xlsx_file(file_path: str, question: str, runtime: ToolRuntime) -> str:
 
 
 __all__ = ["read_pdf_file", "read_docx_file", "read_hwpx_file", "read_pptx_file", "read_xlsx_file"]
-

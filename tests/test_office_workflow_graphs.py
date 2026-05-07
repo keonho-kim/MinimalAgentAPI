@@ -19,9 +19,6 @@ from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.workflo
 from minial_agent.agents.tools.read_documents.pptx import (
     build_pptx_read_workflow,
 )
-from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.workflow.edit import (
-    build_xlsx_edit_workflow,
-)
 from minial_agent.agents.tools.read_documents.xlsx import (
     build_xlsx_read_workflow,
 )
@@ -74,8 +71,7 @@ def test_xlsx_read_workflow_uses_observable_step_nodes(tmp_path) -> None:
     assert {
         "resolve_xlsx_artifact",
         "inspect_workbook",
-        "map_relevant_sheets",
-        "scan_xlsx_pages",
+        "read_question_range",
         "build_xlsx_answer",
     } <= nodes
 
@@ -101,18 +97,11 @@ def test_edit_workflows_use_observable_step_nodes(tmp_path) -> None:
             "apply_pptx_edit_spec",
             "register_pptx_edit_result",
         },
-        "xlsx": {
-            "resolve_xlsx_artifact",
-            "build_xlsx_edit_spec",
-            "apply_xlsx_edit_spec",
-            "register_xlsx_edit_result",
-        },
     }
     workflows = {
         "docx": build_docx_edit_workflow(workspace),
         "hwpx": build_hwpx_edit_workflow(workspace),
         "pptx": build_pptx_edit_workflow(workspace),
-        "xlsx": build_xlsx_edit_workflow(workspace),
     }
 
     for file_type, workflow in workflows.items():

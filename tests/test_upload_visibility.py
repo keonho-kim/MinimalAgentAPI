@@ -12,9 +12,6 @@ from minial_agent.agents.tools.read_documents.docx import (
 from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.agent import (
     build_xlsx_subagent,
 )
-from minial_agent.agents.domain.office_file_editor.subagents.editor_xlsx.workflow.edit import (
-    build_xlsx_edit_workflow,
-)
 from minial_agent.agents.tools.read_documents.xlsx import (
     build_xlsx_read_workflow,
 )
@@ -30,6 +27,8 @@ from minial_agent.integrations.upload.visibility import (
     normalize_public_workspace_path,
     to_public_workspace_path,
 )
+from minial_agent.integrations.xlsx.exports import commit_workbook
+from minial_agent.integrations.xlsx.sessions import XlsxSessionStore
 
 
 def test_normalize_public_workspace_path_rejects_internal_paths() -> None:
@@ -319,24 +318,27 @@ def test_workflow_edits_xlsx_and_registers_new_file(
         )
 
     monkeypatch.setattr(file_registry, "build_upload_artifacts", fake_build_upload_artifacts)
-    graph = build_xlsx_edit_workflow(
-        workspace,
-        operation_selector=lambda _instruction: "write_values",
-        slot_filler=lambda _operation, _instruction: "SHEET=Summary; CELL=A1; VALUE=new",
+    artifact = file_registry.resolve_artifact(
+        workspace=workspace,
+        file_ref="file_001",
+        expected_file_type="xlsx",
     )
-
-    result = graph.invoke(
-        {
-            "file_ref": "file_001",
-            "instruction": "SHEET=Summary; CELL=A1; VALUE=new",
-        }
+    session = XlsxSessionStore(workspace).create(artifact=artifact, instruction="edit")
+    session.write_values(sheet="Summary", start_cell="A1", values=[["new"]])
+    payload = commit_workbook(
+        workspace=workspace,
+        source_artifact=artifact,
+        workbook_path=session.working_path,
+        output_path="/book_edited.xlsx",
+        summary="Updated Summary A1.",
+        changed_items=session.changed_items(),
     )
-    payload = json.loads(result["result"])
+    payload_json = json.dumps(payload, ensure_ascii=False)
 
-    assert payload["edited_file"]["file_id"] == "file_002"
-    assert payload["edited_file"]["download_url"].startswith("/api/fs/outputs/")
-    assert ".outputs" not in result["result"]
-    assert ".converted" not in result["result"]
+    assert payload["file"]["file_id"] == "file_002"
+    assert payload["file"]["download_url"].startswith("/api/fs/outputs/")
+    assert ".outputs" not in payload_json
+    assert ".converted" not in payload_json
     assert (workspace.files_dir / "book_edited.xlsx").is_file()
 
     edited = load_workbook(workspace.files_dir / "book_edited.xlsx")
@@ -459,40 +461,45 @@ def test_xlsx_read_workflow_uses_workbook_sheet_summary(tmp_path) -> None:
     )
     registry.update_status("file_001", status="converted")
 
-    scanned_pages = []
-    graph = build_xlsx_read_workflow(
-        workspace,
-        sheet_mapper=lambda summary, _question: (
-            "1; A1:B2; revenue evidence"
-            if summary["sheet_name"] == "Summary"
-            else "0; no_range; no_evidence"
-        ),
-        page_scanner=lambda path, _question: (
-            scanned_pages.append(path.name) or "1; rendered revenue page"
-        ),
-    )
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Summary"
+    summary["A1"] = "Metric"
+    summary["B1"] = "Value"
+    summary["A2"] = "Revenue"
+    summary["B2"] = 10
+    detail = workbook.create_sheet("Detail")
+    detail["A1"] = "Metric"
+    detail["B1"] = "Value"
+    detail["A2"] = "Expense"
+    detail["B2"] = 5
+    workbook.save(source_path)
+    workbook.close()
+
+    graph = build_xlsx_read_workflow(workspace)
     result = graph.invoke(
         {
             "file_ref": "file_001",
-            "question": "revenue?",
+            "question": "Summary B1:B2 revenue?",
         }
     )
     payload = json.loads(result["result"])
 
-    assert payload["relevant_sheet_count"] == 1
-    assert payload["relevant_sheets"][0]["sheet_name"] == "Summary"
-    assert payload["relevant_sheets"][0]["candidate_ranges"] == "A1:B2"
-    assert payload["scanned_pages"] == 1
-    assert scanned_pages == ["page_001.png"]
-    assert payload["relevant_pages"][0]["filename"] == "summary_page_001.png"
-    assert payload["answer"].startswith("관련 근거는 book.xlsx의 1페이지")
+    assert payload["workbook"]["sheet_count"] == 2
+    assert payload["selected_range"]["range"]["sheet_name"] == "Summary"
+    assert payload["selected_range"]["range"]["headers"] == ["Value"]
+    assert payload["selected_range"]["range"]["rows"] == [{"Value": 10}]
     assert ".converted" not in result["result"]
 
 
-def test_xlsx_read_workflow_rejects_malformed_sheet_scan(tmp_path) -> None:
+def test_xlsx_read_workflow_rejects_missing_sheet_for_explicit_range(tmp_path) -> None:
     workspace = ensure_upload_workspace(tmp_path)
     source_path = workspace.files_dir / "book.xlsx"
-    source_path.write_text("xlsx", encoding="utf-8")
+    workbook = Workbook()
+    workbook.active.title = "Summary"
+    workbook.create_sheet("Detail")
+    workbook.save(source_path)
+    workbook.close()
     converted_dir = workspace.converted_dir / "file_001"
     sheet_dir = converted_dir / "xlsx" / "sheets" / "sheet_0001"
     sheet_dir.mkdir(parents=True)
@@ -554,24 +561,37 @@ def test_xlsx_read_workflow_rejects_malformed_sheet_scan(tmp_path) -> None:
     )
     registry.update_status("file_001", status="converted")
 
-    graph = build_xlsx_read_workflow(
-        workspace,
-        sheet_mapper=lambda _summary, _question: "invalid",
-    )
+    graph = build_xlsx_read_workflow(workspace)
 
-    with pytest.raises(ValueError, match="Invalid XLSX sheet scan output"):
+    with pytest.raises(ValueError, match="sheet name is required"):
         graph.invoke(
             {
                 "file_ref": "file_001",
-                "question": "revenue?",
+                "question": "B1:B2 revenue?",
             }
         )
 
 
-def test_xlsx_worker_exposes_edit_tool_only() -> None:
+def test_xlsx_worker_exposes_session_tools() -> None:
     tool_names = [tool.name for tool in build_xlsx_subagent()["tools"]]
 
-    assert tool_names == ["edit_xlsx"]
+    assert tool_names == [
+        "start_xlsx_session",
+        "inspect_xlsx_session",
+        "load_xlsx_range",
+        "profile_xlsx_dataframe",
+        "preview_xlsx_dataframe",
+        "transform_xlsx_dataframe",
+        "write_xlsx_dataframe",
+        "write_xlsx_values",
+        "add_xlsx_formula",
+        "export_xlsx_range",
+        "export_xlsx_dataframe",
+        "export_xlsx_detected_table_csv",
+        "export_xlsx_dataframe_csv",
+        "commit_xlsx_session",
+        "discard_xlsx_session",
+    ]
 
 
 def _register_converted_file(

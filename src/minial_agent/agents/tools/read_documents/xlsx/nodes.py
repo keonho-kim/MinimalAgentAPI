@@ -1,18 +1,11 @@
+import re
+
 from minial_agent.common.utils.file_registry import resolve_artifact
 from minial_agent.integrations.upload.models import UploadWorkspace
 from minial_agent.integrations.upload.resolver import ResolvedUploadArtifact
-
-from minial_agent.agents.utils.scan import PageScanner, build_page_answer, scan_artifact_pages
-from minial_agent.agents.tools.read_documents.xlsx.sheets import (
-    SheetMapper,
-    find_sheet,
-    load_sheet_summary,
-    map_relevant_sheets as map_relevant_sheet_summaries,
-    public_sheet_entries,
-    public_sheet_summary,
-    relevant_sheet_pages,
-)
-from minial_agent.agents.tools.read_documents.xlsx.prompts import PAGE_SCAN_PROMPT, SHEET_SCAN_PROMPT
+from minial_agent.integrations.xlsx.dataframes import profile_dataframe, preview_dataframe
+from minial_agent.integrations.xlsx.ranges import range_to_dataframe, read_range
+from minial_agent.integrations.xlsx.workbook import inspect_workbook as inspect_xlsx_workbook
 
 
 def resolve_xlsx_artifact(
@@ -27,59 +20,80 @@ def resolve_xlsx_artifact(
 
 
 def inspect_workbook(artifact: ResolvedUploadArtifact) -> dict:
-    workbook_index = artifact.workbook_index or {}
-    sheets = workbook_index.get("sheets", [])
-    return {
+    inspection = inspect_xlsx_workbook(
+        artifact.source_path,
+        filename=artifact.visible_name,
+    ).to_dict()
+    inspection.update(
+        {
         "file_id": artifact.file_id,
         "filename": artifact.visible_name,
-        "sheet_count": workbook_index.get("sheet_count", 0),
-        "sheets": public_sheet_entries(sheets if isinstance(sheets, list) else []),
+        }
+    )
+    return inspection
+
+
+def read_question_range(artifact: ResolvedUploadArtifact, *, question: str, workbook: dict) -> dict:
+    selection = _select_range(question=question, workbook=workbook)
+    if not selection:
+        return {}
+    range_result = read_range(
+        artifact.source_path,
+        selection["sheet"],
+        selection["range"],
+        header=True,
+    )
+    dataframe = range_to_dataframe(
+        artifact.source_path,
+        selection["sheet"],
+        selection["range"],
+        header=True,
+    )
+    return {
+        "range": range_result.to_dict(),
+        "profile": profile_dataframe("selected_range", dataframe).to_dict(),
+        "preview": preview_dataframe(dataframe),
     }
 
 
-def inspect_sheet(artifact: ResolvedUploadArtifact, sheet_name: str) -> dict:
-    sheet = find_sheet(artifact, sheet_name)
-    return public_sheet_summary(artifact, load_sheet_summary(sheet))
-
-
-def map_relevant_sheets(
-    artifact: ResolvedUploadArtifact,
-    *,
-    instruction: str,
-    sheet_mapper: SheetMapper | None = None,
-) -> list[dict]:
-    return map_relevant_sheet_summaries(
-        artifact=artifact,
-        instruction=instruction,
-        prompt=SHEET_SCAN_PROMPT,
-        sheet_mapper=sheet_mapper,
-    )
-
-
-def answer_xlsx(
-    artifact: ResolvedUploadArtifact,
-    *,
-    question: str,
-    sheet_mapper: SheetMapper | None = None,
-    page_scanner: PageScanner | None = None,
-) -> dict:
-    relevant_sheets = map_relevant_sheets(
-        artifact,
-        instruction=question,
-        sheet_mapper=sheet_mapper,
-    )
-    relevant_pages, scanned_pages = scan_artifact_pages(
-        artifact=artifact,
-        question=question,
-        prompt=PAGE_SCAN_PROMPT,
-        pages=relevant_sheet_pages(artifact, relevant_sheets),
-        page_scanner=page_scanner,
-    )
-    result = build_page_answer(
-        relevant_pages=relevant_pages,
-        scanned_pages=scanned_pages,
-    )
-    result["relevant_sheets"] = relevant_sheets
-    result["relevant_sheet_count"] = len(relevant_sheets)
+def answer_xlsx(*, artifact: ResolvedUploadArtifact, question: str) -> dict:
+    workbook = inspect_workbook(artifact)
+    selected = read_question_range(artifact, question=question, workbook=workbook)
+    result = {
+        "file_id": artifact.file_id,
+        "filename": artifact.visible_name,
+        "question": question,
+        "workbook": workbook,
+        "selected_range": selected,
+        "guidance": (
+            "Use the XLSX editor subagent session tools for calculations, dataframe "
+            "transforms, workbook edits, formulas, or export tasks."
+        ),
+    }
     return result
 
+
+def _select_range(*, question: str, workbook: dict) -> dict[str, str] | None:
+    match = re.search(r"\b([A-Z]{1,3}\d{1,7}\s*:\s*[A-Z]{1,3}\d{1,7})\b", question, re.IGNORECASE)
+    if not match:
+        return None
+    range_ref = match.group(1).replace(" ", "").upper()
+    sheets = workbook.get("sheets", [])
+    sheet_name = _mentioned_sheet(question, sheets)
+    if not sheet_name and len(sheets) == 1:
+        sheet_name = str(sheets[0].get("sheet_name", ""))
+    if not sheet_name:
+        raise ValueError("A sheet name is required when a workbook has multiple sheets.")
+    return {"sheet": sheet_name, "range": range_ref}
+
+
+def _mentioned_sheet(question: str, sheets: list[dict]) -> str | None:
+    lowered = question.lower()
+    for sheet in sheets:
+        name = str(sheet.get("sheet_name", ""))
+        if name and name.lower() in lowered:
+            return name
+    quoted = re.search(r"'([^']+)'!\s*[A-Z]{1,3}\d{1,7}", question, re.IGNORECASE)
+    if quoted:
+        return quoted.group(1)
+    return None

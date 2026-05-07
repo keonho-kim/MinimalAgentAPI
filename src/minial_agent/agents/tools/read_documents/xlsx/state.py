@@ -6,8 +6,7 @@ class XlsxReadState(TypedDict, total=False):
     question: str
     artifact: Any
     workbook: dict
-    relevant_sheets: list[dict]
-    relevant_pages: list[dict]
-    scanned_pages: int
+    selected_range: dict
+    data_profile: dict
     answer_payload: dict
     result: str

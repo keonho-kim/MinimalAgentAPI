@@ -213,7 +213,8 @@ def test_agent_prompts_use_core_read_tools_and_edit_subagents() -> None:
     assert "read_hwpx_file" in HWPX_AGENT_SYSTEM_PROMPT
     assert "edit_pptx" in PPTX_AGENT_SYSTEM_PROMPT
     assert "read_pptx_file" in PPTX_AGENT_SYSTEM_PROMPT
-    assert "edit_xlsx" in XLSX_AGENT_SYSTEM_PROMPT
+    assert "start_xlsx_session" in XLSX_AGENT_SYSTEM_PROMPT
+    assert "commit_xlsx_session" in XLSX_AGENT_SYSTEM_PROMPT
     assert "read_xlsx_file" in XLSX_AGENT_SYSTEM_PROMPT
 
 
@@ -281,11 +282,28 @@ def test_office_edit_subagents_use_create_agent_with_edit_tools(monkeypatch) -> 
         "read_pptx_file",
         "read_xlsx_file",
     ]
+    xlsx_tools = [
+        "start_xlsx_session",
+        "inspect_xlsx_session",
+        "load_xlsx_range",
+        "profile_xlsx_dataframe",
+        "preview_xlsx_dataframe",
+        "transform_xlsx_dataframe",
+        "write_xlsx_dataframe",
+        "write_xlsx_values",
+        "add_xlsx_formula",
+        "export_xlsx_range",
+        "export_xlsx_dataframe",
+        "export_xlsx_detected_table_csv",
+        "export_xlsx_dataframe_csv",
+        "commit_xlsx_session",
+        "discard_xlsx_session",
+    ]
     assert [[tool.name for tool in call["tools"]] for call in captured_calls] == [
         [*read_tool_names, "edit_hwpx"],
         [*read_tool_names, "edit_docx"],
         [*read_tool_names, "edit_pptx"],
-        [*read_tool_names, "edit_xlsx"],
+        [*read_tool_names, *xlsx_tools],
     ]
     worker_hitl = {
         call["name"]: set(call["middleware"][0]["hitl"]["interrupt_on"])
@@ -294,7 +312,13 @@ def test_office_edit_subagents_use_create_agent_with_edit_tools(monkeypatch) -> 
     assert worker_hitl["editor_docx"] == {"edit_docx"}
     assert worker_hitl["editor_hwpx"] == {"edit_hwpx"}
     assert worker_hitl["editor_pptx"] == {"edit_pptx"}
-    assert worker_hitl["editor_xlsx"] == {"edit_xlsx"}
+    assert worker_hitl["editor_xlsx"] == {
+        "commit_xlsx_session",
+        "export_xlsx_range",
+        "export_xlsx_dataframe",
+        "export_xlsx_detected_table_csv",
+        "export_xlsx_dataframe_csv",
+    }
     assert all(call["middleware"][1]["patch_tool_calls"] is True for call in captured_calls)
 
 

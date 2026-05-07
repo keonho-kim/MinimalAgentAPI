@@ -159,7 +159,21 @@ TOOL_DISPLAY_MAP: dict[str, DisplayInfo] = {
     "edit_docx": standard_display("DOCX 수정"),
     "edit_hwpx": standard_display("HWPX 수정"),
     "edit_pptx": standard_display("PPTX 수정"),
-    "edit_xlsx": standard_display("XLSX 수정"),
+    "start_xlsx_session": standard_display("XLSX 세션 시작"),
+    "inspect_xlsx_session": standard_display("XLSX 세션 확인"),
+    "load_xlsx_range": standard_display("XLSX 범위 읽기"),
+    "profile_xlsx_dataframe": standard_display("XLSX 데이터 프로파일"),
+    "preview_xlsx_dataframe": standard_display("XLSX 데이터 미리보기"),
+    "transform_xlsx_dataframe": standard_display("XLSX 데이터 변환"),
+    "write_xlsx_dataframe": standard_display("XLSX 데이터 쓰기"),
+    "write_xlsx_values": standard_display("XLSX 값 쓰기"),
+    "add_xlsx_formula": standard_display("XLSX 수식 추가"),
+    "export_xlsx_range": standard_display("XLSX 범위 내보내기"),
+    "export_xlsx_dataframe": standard_display("XLSX 데이터 내보내기"),
+    "export_xlsx_detected_table_csv": standard_display("XLSX 표 CSV 내보내기"),
+    "export_xlsx_dataframe_csv": standard_display("XLSX 데이터 CSV 내보내기"),
+    "commit_xlsx_session": standard_display("XLSX 수정본 저장"),
+    "discard_xlsx_session": standard_display("XLSX 세션 폐기"),
 }
 
 

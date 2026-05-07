@@ -15,11 +15,17 @@ from minial_agent.agents.domain.office_file_editor.subagents import (
 )
 
 
-WORKER_EDIT_TOOLS = {
-    "editor_docx": "edit_docx",
-    "editor_hwpx": "edit_hwpx",
-    "editor_pptx": "edit_pptx",
-    "editor_xlsx": "edit_xlsx",
+WORKER_HITL_TOOLS = {
+    "editor_docx": {"edit_docx"},
+    "editor_hwpx": {"edit_hwpx"},
+    "editor_pptx": {"edit_pptx"},
+    "editor_xlsx": {
+        "commit_xlsx_session",
+        "export_xlsx_range",
+        "export_xlsx_dataframe",
+        "export_xlsx_detected_table_csv",
+        "export_xlsx_dataframe_csv",
+    },
 }
 
 
@@ -57,17 +63,16 @@ def _compile_worker_subagent(
 ) -> CompiledSubAgent:
     from minial_agent.agents.tools import ALL_AGENT_TOOLS
 
-    edit_tool = WORKER_EDIT_TOOLS.get(spec["name"])
-    if not edit_tool:
+    hitl_tools = WORKER_HITL_TOOLS.get(spec["name"])
+    if not hitl_tools:
         raise ValueError(f"Unsupported office edit subagent: {spec['name']}")
 
     interrupt_on = {
-        edit_tool: {
+        tool_name: {
             "allowed_decisions": ["approve", "edit", "reject"],
-            "description": (
-                "An office file edit requires approval before it changes the workspace."
-            ),
+            "description": "An office file edit requires approval before it changes the workspace.",
         }
+        for tool_name in hitl_tools
     }
 
     middleware = [

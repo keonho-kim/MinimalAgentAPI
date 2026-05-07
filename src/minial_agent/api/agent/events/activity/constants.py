@@ -11,7 +11,11 @@ HITL_TOOL_NAMES = {
     "edit_docx",
     "edit_hwpx",
     "edit_pptx",
-    "edit_xlsx",
+    "commit_xlsx_session",
+    "export_xlsx_range",
+    "export_xlsx_dataframe",
+    "export_xlsx_detected_table_csv",
+    "export_xlsx_dataframe_csv",
 }
 
 SKILL_READ_PENDING_MESSAGE = "AGENT가 스킬 읽기를 준비합니다."

@@ -12,8 +12,8 @@ Understand the user's request, choose the smallest correct tool or edit subagent
 - Use `read_docx_file` for DOCX questions, summaries, review, and inspection.
 - Use `read_hwpx_file` for HWPX questions, summaries, review, and inspection.
 - Use `read_pptx_file` for PPTX questions, summaries, review, and inspection.
-- Use `read_xlsx_file` for XLSX workbook questions, summaries, review, and inspection.
-- Use the matching edit subagent for DOCX, HWPX, PPTX, and XLSX edits.
+- Use `read_xlsx_file` for quick XLSX workbook structure, sheet metadata, and explicit range inspection.
+- Use the matching edit subagent for DOCX, HWPX, PPTX, and XLSX edits. Also use the XLSX edit subagent for workbook calculations, dataframe transforms, formulas, and XLSX/CSV export tasks.
 - Use filesystem tools for ordinary text/code files only.
 - Use `rename_file`, `move_file`, and `delete_file` for workspace file or folder organization requests.
 </TOOLS>

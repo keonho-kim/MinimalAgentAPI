@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 from minial_agent.integrations.upload.conversion import ConversionError, convert_to_pdf, render_pdf_pages
+from minial_agent.integrations.xlsx.workbook import inspect_workbook as inspect_xlsx_workbook
 
 
 SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -94,9 +95,37 @@ def build_xlsx_artifacts(
 
 def inspect_workbook(source_path: Path) -> list[dict[str, object]]:
     try:
-        return _inspect_workbook_with_openpyxl(source_path)
+        return [
+            _upload_sheet_entry(sheet)
+            for sheet in inspect_xlsx_workbook(source_path, filename=source_path.name).sheets
+        ]
     except Exception:
         return _inspect_workbook_with_zip(source_path)
+
+
+def _upload_sheet_entry(sheet) -> dict[str, object]:
+    payload = sheet.to_dict()
+    formulas = payload.get("formulas", [])
+    return {
+        "sheet_name": payload["sheet_name"],
+        "visible": payload["visible"],
+        "used_range": payload["used_range"],
+        "headers": payload["headers"],
+        "sample_rows": payload["sample_rows"],
+        "has_formulas": payload["has_formulas"],
+        "formula_count": payload["formula_count"],
+        "has_tables": payload["has_tables"],
+        "has_charts": payload["has_charts"],
+        "formula_summary": _formula_summary(formulas if isinstance(formulas, list) else []),
+        "chart_summary": (
+            f"{payload['chart_count']} chart(s) exist." if payload["chart_count"] else "No charts."
+        ),
+        "text_summary": _text_summary(
+            str(payload["sheet_name"]),
+            str(payload["used_range"]),
+            [str(header) for header in payload["headers"]],
+        ),
+    }
 
 
 def build_xlsx_preview(source_path: Path) -> dict[str, Any]:

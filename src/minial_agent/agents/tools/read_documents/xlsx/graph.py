@@ -5,18 +5,12 @@ from langgraph.graph import END, START, StateGraph
 from minial_agent.integrations.upload.models import UploadWorkspace
 
 from minial_agent.agents.utils.activity import emit_read_step
-from minial_agent.agents.utils.scan import PageScanner, build_page_answer, scan_artifact_pages
-from minial_agent.agents.tools.read_documents.xlsx.sheets import SheetMapper, relevant_sheet_pages
-from minial_agent.agents.tools.read_documents.xlsx.nodes import inspect_workbook, map_relevant_sheets, resolve_xlsx_artifact
-from minial_agent.agents.tools.read_documents.xlsx.prompts import PAGE_SCAN_PROMPT
+from minial_agent.agents.tools.read_documents.xlsx.nodes import inspect_workbook, read_question_range, resolve_xlsx_artifact
 from minial_agent.agents.tools.read_documents.xlsx.state import XlsxReadState
 
 
 def build_xlsx_read_workflow(
     workspace: UploadWorkspace,
-    *,
-    sheet_mapper: SheetMapper | None = None,
-    page_scanner: PageScanner | None = None,
 ):
     graph = StateGraph(XlsxReadState)
     graph.add_node(
@@ -28,19 +22,14 @@ def build_xlsx_read_workflow(
         _inspect_workbook,
     )
     graph.add_node(
-        "map_relevant_sheets",
-        lambda state: _map_relevant_sheets(state, sheet_mapper=sheet_mapper),
-    )
-    graph.add_node(
-        "scan_xlsx_pages",
-        lambda state: _scan_xlsx_pages(state, page_scanner=page_scanner),
+        "read_question_range",
+        _read_question_range,
     )
     graph.add_node("build_xlsx_answer", _build_xlsx_answer)
     graph.add_edge(START, "resolve_xlsx_artifact")
     graph.add_edge("resolve_xlsx_artifact", "inspect_workbook")
-    graph.add_edge("inspect_workbook", "map_relevant_sheets")
-    graph.add_edge("map_relevant_sheets", "scan_xlsx_pages")
-    graph.add_edge("scan_xlsx_pages", "build_xlsx_answer")
+    graph.add_edge("inspect_workbook", "read_question_range")
+    graph.add_edge("read_question_range", "build_xlsx_answer")
     graph.add_edge("build_xlsx_answer", END)
     return graph.compile()
 
@@ -85,64 +74,25 @@ def _inspect_workbook(state: XlsxReadState) -> XlsxReadState:
     return {"workbook": workbook}
 
 
-def _map_relevant_sheets(
-    state: XlsxReadState,
-    *,
-    sheet_mapper: SheetMapper | None,
-) -> XlsxReadState:
+def _read_question_range(state: XlsxReadState) -> XlsxReadState:
     emit_read_step(
         file_type="xlsx",
-        step="sheet_map",
-        message="질문과 관련된 XLSX 시트를 찾습니다.",
+        step="range",
+        message="질문에 명시된 XLSX 범위를 확인합니다.",
     )
-    relevant_sheets = map_relevant_sheets(
+    selected_range = read_question_range(
         state["artifact"],
-        instruction=state.get("question", ""),
-        sheet_mapper=sheet_mapper,
-    )
-    emit_read_step(
-        file_type="xlsx",
-        step="sheet_map",
-        message=f"관련 시트 {len(relevant_sheets)}개를 찾았습니다.",
-        status="completed",
-        summary={"result": f"{len(relevant_sheets)} relevant sheets"},
-    )
-    return {"relevant_sheets": relevant_sheets}
-
-
-def _scan_xlsx_pages(
-    state: XlsxReadState,
-    *,
-    page_scanner: PageScanner | None,
-) -> XlsxReadState:
-    pages = relevant_sheet_pages(
-        state["artifact"],
-        state.get("relevant_sheets", []),
-    )
-    emit_read_step(
-        file_type="xlsx",
-        step="scan",
-        message=f"관련 XLSX 페이지 {len(pages)}개를 스캔합니다.",
-        summary={"path": state["artifact"].visible_name, "description": f"{len(pages)} pages"},
-    )
-    relevant_pages, scanned_pages = scan_artifact_pages(
-        artifact=state["artifact"],
         question=state.get("question", ""),
-        prompt=PAGE_SCAN_PROMPT,
-        pages=pages,
-        page_scanner=page_scanner,
+        workbook=state.get("workbook", {}),
     )
     emit_read_step(
         file_type="xlsx",
-        step="scan",
-        message=f"XLSX 페이지 스캔을 완료했습니다. 관련 페이지 {len(relevant_pages)}개를 찾았습니다.",
+        step="range",
+        message="XLSX 범위 확인을 완료했습니다.",
         status="completed",
-        summary={"path": state["artifact"].visible_name, "result": f"{scanned_pages} pages scanned"},
+        summary={"result": "range loaded" if selected_range else "no explicit range"},
     )
-    return {
-        "relevant_pages": relevant_pages,
-        "scanned_pages": scanned_pages,
-    }
+    return {"selected_range": selected_range}
 
 
 def _build_xlsx_answer(state: XlsxReadState) -> XlsxReadState:
@@ -151,19 +101,23 @@ def _build_xlsx_answer(state: XlsxReadState) -> XlsxReadState:
         step="answer",
         message="XLSX 근거를 정리해 답변을 준비합니다.",
     )
-    result = build_page_answer(
-        relevant_pages=state.get("relevant_pages", []),
-        scanned_pages=state.get("scanned_pages", 0),
-    )
-    relevant_sheets = state.get("relevant_sheets", [])
-    result["relevant_sheets"] = relevant_sheets
-    result["relevant_sheet_count"] = len(relevant_sheets)
+    result = {
+        "file_id": state["artifact"].file_id,
+        "filename": state["artifact"].visible_name,
+        "question": state.get("question", ""),
+        "workbook": state.get("workbook", {}),
+        "selected_range": state.get("selected_range", {}),
+        "guidance": (
+            "Use the XLSX editor subagent session tools for calculations, dataframe "
+            "transforms, workbook edits, formulas, or export tasks."
+        ),
+    }
     emit_read_step(
         file_type="xlsx",
         step="answer",
         message="XLSX 답변 근거 정리를 완료했습니다.",
         status="completed",
-        summary={"result": f"{len(relevant_sheets)} relevant sheets"},
+        summary={"result": f"{len(result.get('workbook', {}).get('sheets', []))} sheets"},
     )
     return {
         "answer_payload": result,
