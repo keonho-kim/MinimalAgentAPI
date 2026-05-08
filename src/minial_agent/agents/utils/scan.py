@@ -113,6 +113,7 @@ def scan_artifact_pages(
     page_scanner: PageScanner | None = None,
     evidence_judge: EvidenceJudge | None = None,
     batch_size: int | None = None,
+    full_scan: bool = False,
 ) -> tuple[dict[str, str], int, bool]:
     source_pages = pages if pages is not None else artifact.manifest.get("pages", [])
     if not isinstance(source_pages, list):
@@ -150,13 +151,15 @@ def scan_artifact_pages(
                 continue
             evidence[f"page_{page_job['page_number']}"] = answer
 
-        if evidence and (
+        if not full_scan and evidence and (
             evidence_judge(question, evidence)
             if evidence_judge
             else judge_evidence_sufficiency(question, evidence)
         ):
             return evidence, scanned_pages, True
 
+    if full_scan:
+        return evidence, scanned_pages, bool(evidence)
     return evidence, scanned_pages, False
 
 
