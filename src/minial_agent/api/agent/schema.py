@@ -32,6 +32,7 @@ class HitlDecision(BaseModel):
 
 class HitlResumeRequest(BaseModel):
     decisions: list[HitlDecision] = Field(min_length=1)
+    approval_scope: Literal["once", "agent", "core"] = "once"
 
 
 class HitlResumeResponse(BaseModel):

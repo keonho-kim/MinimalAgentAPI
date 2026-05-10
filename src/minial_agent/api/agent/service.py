@@ -31,6 +31,7 @@ class ChatService:
         self.lock_manager = lock_manager or workspace_lock_manager
         self._normalizers: dict[str, StreamEventNormalizer] = {}
         self._pending_hitl: dict[str, PendingHitl] = {}
+        self._auto_approval_scopes: dict[str, set[str]] = {}
 
     def enqueue_chat(self, request: ChatRequest) -> str:
         stream_id = str(uuid4())
@@ -125,13 +126,20 @@ class ChatService:
         if pending is None:
             raise HTTPException(status_code=404, detail="Pending HITL request not found.")
 
+        decisions = [
+            decision.model_dump(exclude_none=True)
+            for decision in request.decisions
+        ]
+        self._record_auto_approval(
+            pending=pending,
+            decisions=decisions,
+            approval_scope=request.approval_scope,
+        )
+
         asyncio.create_task(
             self._resume_agent(
                 pending=pending,
-                decisions=[
-                    decision.model_dump(exclude_none=True)
-                    for decision in request.decisions
-                ],
+                decisions=decisions,
             )
         )
         return HitlResumeResponse(stream_id=stream_id, status="accepted")
@@ -239,6 +247,30 @@ class ChatService:
                 event=event,
             )
             if hitl_payload:
+                if self._is_auto_approved(request=request, hitl_payload=hitl_payload):
+                    decisions = [
+                        {"type": "approve"}
+                        for _action in hitl_payload.get("actions", [])
+                    ]
+                    await self.queue.rpush(
+                        queue_key,
+                        {
+                            "event": "hitl_resumed",
+                            "data": {
+                                "stream_id": stream_id,
+                                "status": "auto_approved",
+                                "approval_scope": hitl_payload.get("approval_scope"),
+                            },
+                        },
+                    )
+                    return await self._stream_agent_events(
+                        stream_id=stream_id,
+                        agent=agent,
+                        input_value=Command(resume={"decisions": decisions}),
+                        config=config,
+                        normalizer=normalizer,
+                        request=request,
+                    )
                 self._pending_hitl[stream_id] = PendingHitl(
                     stream_id=stream_id,
                     user_id=request.user_id,
@@ -267,5 +299,45 @@ class ChatService:
         if not saw_stream_item:
             raise RuntimeError("Agent stream ended without output.")
         return False
+
+    def _record_auto_approval(
+        self,
+        *,
+        pending: PendingHitl,
+        decisions: list[dict[str, Any]],
+        approval_scope: str,
+    ) -> None:
+        if approval_scope == "once":
+            return
+        if not decisions or any(decision.get("type") != "approve" for decision in decisions):
+            return
+
+        scope = "core" if approval_scope == "core" else pending.payload.get("approval_scope")
+        if not isinstance(scope, str) or not scope:
+            return
+
+        self._auto_approval_scopes.setdefault(
+            self._approval_key(pending.user_id, pending.uuid),
+            set(),
+        ).add(scope)
+
+    def _is_auto_approved(
+        self,
+        *,
+        request: ChatRequest,
+        hitl_payload: dict[str, Any],
+    ) -> bool:
+        scopes = self._auto_approval_scopes.get(
+            self._approval_key(request.user_id, request.uuid),
+            set(),
+        )
+        if "core" in scopes:
+            return True
+
+        scope = hitl_payload.get("approval_scope")
+        return isinstance(scope, str) and scope in scopes
+
+    def _approval_key(self, user_id: str, uuid: str) -> str:
+        return f"{user_id}:{uuid}"
 
 chat_service = ChatService()

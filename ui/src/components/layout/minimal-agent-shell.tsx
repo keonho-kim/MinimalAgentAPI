@@ -212,6 +212,14 @@ export function MinimalAgentShell() {
     void hitl.submit("approve");
   }, [hitl.submit]);
 
+  const approveHitlAgent = useCallback(() => {
+    void hitl.submit("approve", "agent");
+  }, [hitl.submit]);
+
+  const approveHitlCore = useCallback(() => {
+    void hitl.submit("approve", "core");
+  }, [hitl.submit]);
+
   const rejectHitl = useCallback(() => {
     void hitl.submit("reject");
   }, [hitl.submit]);
@@ -330,6 +338,8 @@ export function MinimalAgentShell() {
             status={hitl.status}
             submitting={hitl.submitting}
             onApprove={approveHitl}
+            onApproveAgent={approveHitlAgent}
+            onApproveCore={approveHitlCore}
             onDraftChange={hitl.updateDraft}
             onModeChange={hitl.setMode}
             onReject={rejectHitl}

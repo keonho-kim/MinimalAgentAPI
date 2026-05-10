@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import type { HitlDecision, HitlRequest } from "@/lib/api";
+import type { HitlApprovalScope, HitlDecision, HitlRequest } from "@/lib/api";
 import { submitHitlDecision } from "@/lib/api";
 import {
   actionToDraft,
@@ -25,10 +25,12 @@ export function useHitlApproval({
     mutationFn: ({
       streamId,
       decisions,
+      approvalScope,
     }: {
       streamId: string;
       decisions: HitlDecision[];
-    }) => submitHitlDecision({ streamId, decisions }),
+      approvalScope?: HitlApprovalScope;
+    }) => submitHitlDecision({ streamId, decisions, approvalScope }),
     onSuccess: () => {
       clearDialogState();
       onResuming();
@@ -88,7 +90,10 @@ export function useHitlApproval({
   );
 
   const submit = useCallback(
-    async (decisionType: HitlDecision["type"]) => {
+    async (
+      decisionType: HitlDecision["type"],
+      approvalScope: HitlApprovalScope = "once",
+    ) => {
       if (!activeStreamId || !request) {
         return;
       }
@@ -121,7 +126,7 @@ export function useHitlApproval({
 
       setStatus("승인 결정을 제출하는 중입니다...");
       try {
-        await submitDecision({ streamId: activeStreamId, decisions });
+        await submitDecision({ streamId: activeStreamId, decisions, approvalScope });
       } catch {
         // The mutation onError handler publishes the user-visible status.
       }

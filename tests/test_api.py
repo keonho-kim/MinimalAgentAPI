@@ -167,6 +167,54 @@ class FakeHitlAgent:
         }
 
 
+class FakeScopedHitlAgent:
+    def __init__(self) -> None:
+        self.inputs = []
+
+    async def astream_events(self, input_value, *_args, **_kwargs):
+        self.inputs.append(input_value)
+        if isinstance(input_value, Command):
+            yield _message_stream_event(AIMessageChunk(content="approved"))
+            return
+        yield {
+            "event": "on_chain_stream",
+            "name": "LangGraph",
+            "run_id": "graph-run",
+            "parent_ids": [],
+            "data": {
+                "chunk": {
+                    "__interrupt__": [
+                        {
+                            "id": "interrupt-1",
+                            "value": {
+                                "action_requests": [
+                                    {
+                                        "name": "execute",
+                                        "args": {"command": "python analysis.py"},
+                                        "description": (
+                                            "Approve execution\n"
+                                            "Approval scope: data_expertise"
+                                        ),
+                                    }
+                                ],
+                                "review_configs": [
+                                    {
+                                        "action_name": "execute",
+                                        "allowed_decisions": [
+                                            "approve",
+                                            "edit",
+                                            "reject",
+                                        ],
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+
+
 def _message_stream_event(chunk):
     return {
         "event": "on_chat_model_stream",
@@ -367,6 +415,104 @@ def test_chat_service_streams_hitl_request_and_resumes() -> None:
     asyncio.run(run())
 
 
+def test_chat_service_auto_approves_granted_agent_scope() -> None:
+    async def run() -> None:
+        agent = FakeScopedHitlAgent()
+        service = ChatService(
+            registry=FakeRegistry(agent),
+            queue=InMemoryQueue(),
+            lock_manager=FakeLockManager(),
+        )
+        request = ChatRequest(
+            user_id="user",
+            uuid="session",
+            message="analyze data",
+            chat_history=[],
+        )
+
+        await service._run_agent(stream_id="stream-one", request=request)
+        queue_key = service._queue_key("stream-one")
+        assert (await service.queue.lpop(queue_key, timeout=0.1))["event"] == "queued"
+        hitl = await service.queue.lpop(queue_key, timeout=0.1)
+        assert hitl["event"] == "hitl_request"
+        assert hitl["data"]["approval_scope"] == "data_expertise"
+
+        response = await service.resume_hitl(
+            stream_id="stream-one",
+            request=HitlResumeRequest(
+                decisions=[{"type": "approve"}],
+                approval_scope="agent",
+            ),
+        )
+        assert response.status == "accepted"
+
+        for _ in range(4):
+            item = await service.queue.lpop(queue_key, timeout=1)
+            if item and item["event"] == "done":
+                break
+
+        await service._run_agent(stream_id="stream-two", request=request)
+        second_key = service._queue_key("stream-two")
+        events = []
+        for _ in range(4):
+            item = await service.queue.lpop(second_key, timeout=1)
+            if item is not None:
+                events.append(item)
+            if item and item["event"] == "done":
+                break
+
+        assert [event["event"] for event in events] == [
+            "queued",
+            "hitl_resumed",
+            "agent_ui",
+            "done",
+        ]
+        assert events[1]["data"]["status"] == "auto_approved"
+        assert events[1]["data"]["approval_scope"] == "data_expertise"
+        assert isinstance(agent.inputs[-1], Command)
+
+    asyncio.run(run())
+
+
+def test_chat_service_core_scope_auto_approves_unscoped_requests() -> None:
+    async def run() -> None:
+        agent = FakeHitlAgent()
+        service = ChatService(
+            registry=FakeRegistry(agent),
+            queue=InMemoryQueue(),
+            lock_manager=FakeLockManager(),
+        )
+        request = ChatRequest(
+            user_id="user",
+            uuid="session",
+            message="write a file",
+            chat_history=[],
+        )
+        service._auto_approval_scopes["user:session"] = {"core"}
+
+        await service._run_agent(stream_id="stream-id", request=request)
+        queue_key = service._queue_key("stream-id")
+        events = []
+        for _ in range(4):
+            item = await service.queue.lpop(queue_key, timeout=1)
+            if item is not None:
+                events.append(item)
+            if item and item["event"] == "done":
+                break
+
+        assert [event["event"] for event in events] == [
+            "queued",
+            "hitl_resumed",
+            "agent_ui",
+            "done",
+        ]
+        assert events[1]["data"]["status"] == "auto_approved"
+        assert events[1]["data"]["approval_scope"] is None
+        assert isinstance(agent.inputs[-1], Command)
+
+    asyncio.run(run())
+
+
 def test_chat_service_hitl_extraction_ignores_nonserializable_event_objects() -> None:
     raw_socket = socket.socket()
     try:
@@ -421,6 +567,51 @@ def test_chat_service_extracts_langgraph_v2_interrupt_objects() -> None:
                 "allowed_decisions": ["approve", "edit", "reject"],
             }
         ],
+        "approval_scope": None,
+    }
+
+
+def test_chat_service_extracts_and_strips_hitl_approval_scope() -> None:
+    payload = extract_hitl_payload(
+        stream_id="stream-id",
+        event={
+            "type": "values",
+            "interrupts": [
+                Interrupt(
+                    value={
+                        "action_requests": [
+                            {
+                                "name": "execute",
+                                "args": {"command": "python analysis.py"},
+                                "description": (
+                                    "Approve execution\n"
+                                    "Approval scope: data_expertise"
+                                ),
+                            }
+                        ],
+                        "review_configs": [
+                            {
+                                "allowed_decisions": ["approve", "edit", "reject"],
+                            }
+                        ],
+                    },
+                    id="interrupt-1",
+                )
+            ],
+        },
+    )
+
+    assert payload == {
+        "stream_id": "stream-id",
+        "actions": [
+            {
+                "name": "execute",
+                "args": {"command": "python analysis.py"},
+                "description": "Approve execution",
+                "allowed_decisions": ["approve", "edit", "reject"],
+            }
+        ],
+        "approval_scope": "data_expertise",
     }
 
 

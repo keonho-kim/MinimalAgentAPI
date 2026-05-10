@@ -29,6 +29,8 @@ export const HitlApprovalDialog = memo(function HitlApprovalDialog({
   onDraftChange,
   onRejectMessageChange,
   onApprove,
+  onApproveAgent,
+  onApproveCore,
   onSubmitEdit,
   onReject,
 }: {
@@ -42,6 +44,8 @@ export const HitlApprovalDialog = memo(function HitlApprovalDialog({
   onDraftChange(index: number, field: keyof HitlDraft, value: string): void;
   onRejectMessageChange(value: string): void;
   onApprove(): void;
+  onApproveAgent(): void;
+  onApproveCore(): void;
   onSubmitEdit(): void;
   onReject(): void;
 }) {
@@ -127,6 +131,24 @@ export const HitlApprovalDialog = memo(function HitlApprovalDialog({
                   <Check data-icon="inline-start" />
                 )}
                 승인
+              </Button>
+              {request?.approval_scope ? (
+                <Button
+                  disabled={!canApprove || submitting}
+                  variant="outline"
+                  onClick={onApproveAgent}
+                >
+                  <ShieldCheck data-icon="inline-start" />
+                  이 에이전트 항상 승인
+                </Button>
+              ) : null}
+              <Button
+                disabled={!canApprove || submitting}
+                variant="outline"
+                onClick={onApproveCore}
+              >
+                <ShieldCheck data-icon="inline-start" />
+                모든 에이전트 자동 승인
               </Button>
             </>
           ) : null}

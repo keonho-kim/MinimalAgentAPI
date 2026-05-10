@@ -270,7 +270,10 @@ export type HitlActionRequest = {
 export type HitlRequest = {
   stream_id: string;
   actions: HitlActionRequest[];
+  approval_scope?: string | null;
 };
+
+export type HitlApprovalScope = "once" | "agent" | "core";
 
 export type HitlDecision =
   | { type: "approve" }

@@ -16,6 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 
 from minial_agent.agents.core.system_prompt import CORE_AGENT_SYSTEM_PROMPT
+from minial_agent.agents.domain.data_expertise import build_data_expertise_subagents
 from minial_agent.agents.domain.office_file_editor import build_office_edit_subagents
 from minial_agent.agents.middleware import OfficeBinaryReadGuardMiddleware
 from minial_agent.agents.tools import ALL_AGENT_TOOLS
@@ -28,31 +29,36 @@ FILESYSTEM_HITL_POLICY = {
     "write_file": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
-            "A file write requires approval before it changes the workspace."
+            "A file write requires approval before it changes the workspace.\n"
+            "Approval scope: core"
         ),
     },
     "edit_file": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
-            "A file edit requires approval before it changes the workspace."
+            "A file edit requires approval before it changes the workspace.\n"
+            "Approval scope: core"
         ),
     },
     "rename_file": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
-            "A file or folder rename requires approval before it changes the workspace."
+            "A file or folder rename requires approval before it changes the workspace.\n"
+            "Approval scope: core"
         ),
     },
     "move_file": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
-            "A file or folder move requires approval before it changes the workspace."
+            "A file or folder move requires approval before it changes the workspace.\n"
+            "Approval scope: core"
         ),
     },
     "delete_file": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": (
-            "A file or folder deletion requires approval before it changes the workspace."
+            "A file or folder deletion requires approval before it changes the workspace.\n"
+            "Approval scope: core"
         ),
     },
 }
@@ -98,6 +104,12 @@ class AgentBuilder:
             store=_store,
             checkpointer=_checkpointer,
         )
+        data_expertise_subagents = build_data_expertise_subagents(
+            model=model,
+            backend=files_backend,
+            store=_store,
+            checkpointer=_checkpointer,
+        )
 
         #####################################
         ############# MIDDLEWARE ############
@@ -114,7 +126,7 @@ class AgentBuilder:
             ),
             SubAgentMiddleware(
                 backend=files_backend,
-                subagents=office_edit_subagents,
+                subagents=[*office_edit_subagents, *data_expertise_subagents],
             ),
             SummarizationMiddleware(
                 model=llm_client(),
