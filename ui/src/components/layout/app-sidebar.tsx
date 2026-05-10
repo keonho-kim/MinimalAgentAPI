@@ -2,7 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import wordmarkUrl from "../../../assets/logo/logo.png";
+import wordmarkUrl from "../../../assets/logo/minimal-agent-wordmark.svg";
 
 import type { SessionSummary } from "@/store/session-store";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,8 @@ export const AppSidebar = memo(function AppSidebar({
     <aside className="hidden h-full min-h-0 w-72 shrink-0 border-r bg-card px-4 py-4 lg:flex lg:flex-col">
       <div className="flex min-h-9 items-center">
         <img
-          alt="LG CNS"
-          className="h-8 w-auto max-w-[10.5rem] object-contain"
+          alt="Minimal Agent API Server"
+          className="h-10 w-auto max-w-[12rem] object-contain"
           src={wordmarkUrl}
         />
       </div>

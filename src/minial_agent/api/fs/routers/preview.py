@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 from minial_agent.api.fs.schemas import FsPreviewResponse
-from minial_agent.api.fs.service import fs_service
+from minial_agent.api.fs.dependencies import fs_service
 
 
 router = APIRouter()

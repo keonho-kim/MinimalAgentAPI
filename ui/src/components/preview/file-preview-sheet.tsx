@@ -5,6 +5,7 @@ import type { FsPreviewResponse } from "@/lib/api";
 import { CodePreview } from "@/components/preview/code-preview";
 import { HwpxViewer } from "@/components/preview/hwpx-viewer";
 import { PdfViewer } from "@/components/preview/pdf-viewer";
+import { PptxEditor } from "@/components/preview/pptx/pptx-editor";
 import { TextPreview } from "@/components/preview/text-preview";
 import { XlsxGrid } from "@/components/preview/xlsx-grid";
 import { Button } from "@/components/ui/button";
@@ -22,12 +23,16 @@ type FilePreviewSheetProps = {
   status: string;
   onOpenChange: (open: boolean) => void;
   onRefresh: () => void;
+  sessionUuid: string;
+  userId: string;
 };
 
 export const FilePreviewSheet = memo(function FilePreviewSheet({
   open,
   preview,
   status,
+  sessionUuid,
+  userId,
   onOpenChange,
   onRefresh,
 }: FilePreviewSheetProps) {
@@ -49,14 +54,29 @@ export const FilePreviewSheet = memo(function FilePreviewSheet({
           </div>
         </SheetHeader>
         <div className="min-h-0 flex-1 bg-background">
-          <PreviewContent preview={preview} />
+          <PreviewContent
+            preview={preview}
+            sessionUuid={sessionUuid}
+            userId={userId}
+            onRefresh={onRefresh}
+          />
         </div>
       </SheetContent>
     </Sheet>
   );
 });
 
-function PreviewContent({ preview }: { preview: FsPreviewResponse | null }) {
+function PreviewContent({
+  preview,
+  sessionUuid,
+  userId,
+  onRefresh,
+}: {
+  preview: FsPreviewResponse | null;
+  sessionUuid: string;
+  userId: string;
+  onRefresh: () => void;
+}) {
   if (!preview) {
     return (
       <div className="p-5 text-sm text-muted-foreground">
@@ -83,6 +103,17 @@ function PreviewContent({ preview }: { preview: FsPreviewResponse | null }) {
 
   if (preview.preview_type === "code" && preview.source_url) {
     return <CodePreview filename={preview.filename} sourceUrl={preview.source_url} />;
+  }
+
+  if (preview.file_type === "pptx" && preview.source_url) {
+    return (
+      <PptxEditor
+        preview={preview}
+        sessionUuid={sessionUuid}
+        userId={userId}
+        onRefresh={onRefresh}
+      />
+    );
   }
 
   if (preview.source_url) {

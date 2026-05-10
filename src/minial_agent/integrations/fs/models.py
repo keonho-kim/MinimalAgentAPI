@@ -29,6 +29,7 @@ class FsPreview:
     file_type: str
     preview_type: str
     workbook: dict[str, Any] | None = None
+    presentation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,16 @@ from minial_agent.integrations.upload.models import UploadWorkspace
 from minial_agent.integrations.upload.registry import UploadRegistry
 
 
-SUPPORTED_FILE_TYPES = frozenset({"hwpx", "docx", "pptx", "xlsx", "pdf"})
+SUPPORTED_FILE_TYPES = frozenset({
+    "doc",
+    "docx",
+    "hwpx",
+    "pdf",
+    "ppt",
+    "pptx",
+    "xls",
+    "xlsx",
+})
 
 
 @dataclass(frozen=True)

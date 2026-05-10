@@ -10,3 +10,4 @@ class FsPreviewResponse(BaseModel):
     preview_type: str
     source_url: str | None = None
     workbook: dict[str, Any] | None = None
+    presentation: dict[str, Any] | None = None

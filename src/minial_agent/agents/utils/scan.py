@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from minial_agent.common.llm import llm_client
+from minial_agent.common.vlm import vlm_slot
 from minial_agent.integrations.upload.resolver import ResolvedUploadArtifact
 
 from minial_agent.agents.utils.runtime import response_content
@@ -57,22 +58,23 @@ def scan_page(
     if not page_path.is_file():
         raise ValueError("Page image not found for VLM scan.")
     encoded = base64.b64encode(page_path.read_bytes()).decode("ascii")
-    response = llm_client(disable_streaming=True).invoke(
-        [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt.format(question=question)},
-                    {
-                        "type": "image",
-                        "base64": encoded,
-                        "mime_type": "image/png",
-                        "filename": page_path.name,
-                    },
-                ],
-            }
-        ]
-    )
+    with vlm_slot():
+        response = llm_client(disable_streaming=True).invoke(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt.format(question=question)},
+                        {
+                            "type": "image",
+                            "base64": encoded,
+                            "mime_type": "image/png",
+                            "filename": page_path.name,
+                        },
+                    ],
+                }
+            ]
+        )
     return response_content(response)
 
 
@@ -87,17 +89,18 @@ def judge_evidence_sufficiency(question: str, evidence: dict[str, str]) -> bool:
     if not evidence:
         return False
 
-    response = llm_client(disable_streaming=True).invoke(
-        [
-            {
-                "role": "user",
-                "content": _EVIDENCE_SUFFICIENCY_PROMPT.format(
-                    question=question,
-                    evidence=build_evidence_result(evidence),
-                ),
-            }
-        ]
-    )
+    with vlm_slot():
+        response = llm_client(disable_streaming=True).invoke(
+            [
+                {
+                    "role": "user",
+                    "content": _EVIDENCE_SUFFICIENCY_PROMPT.format(
+                        question=question,
+                        evidence=build_evidence_result(evidence),
+                    ),
+                }
+            ]
+        )
     verdict = response_content(response).strip()
     if verdict not in {"0", "1"}:
         raise ValueError("Invalid VLM sufficiency output. Expected `0` or `1`.")

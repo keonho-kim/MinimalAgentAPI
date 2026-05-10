@@ -12,6 +12,7 @@ from langgraph.types import Command, Interrupt
 from minial_agent.api.agent.router import router
 from minial_agent.api.agent.schema import ChatRequest, HitlResumeRequest, HitlResumeResponse
 from minial_agent.api.agent.events import StreamEventNormalizer
+from minial_agent.api.agent.hitl import extract_hitl_payload
 from minial_agent.api.agent.service import ChatService
 from minial_agent.common.queue import InMemoryQueue
 from minial_agent.constants.user_request import USER_REQUEST
@@ -367,10 +368,9 @@ def test_chat_service_streams_hitl_request_and_resumes() -> None:
 
 
 def test_chat_service_hitl_extraction_ignores_nonserializable_event_objects() -> None:
-    service = ChatService(queue=InMemoryQueue())
     raw_socket = socket.socket()
     try:
-        payload = service._extract_hitl_payload(
+        payload = extract_hitl_payload(
             stream_id="stream-id",
             event={
                 "event": "on_chain_stream",
@@ -385,9 +385,7 @@ def test_chat_service_hitl_extraction_ignores_nonserializable_event_objects() ->
 
 
 def test_chat_service_extracts_langgraph_v2_interrupt_objects() -> None:
-    service = ChatService(queue=InMemoryQueue())
-
-    payload = service._extract_hitl_payload(
+    payload = extract_hitl_payload(
         stream_id="stream-id",
         event={
             "type": "values",

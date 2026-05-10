@@ -1,7 +1,14 @@
 from pathlib import Path
 
-from minial_agent.integrations.fs import listing, mutations, outputs, preview
+from minial_agent.integrations.fs import listing, mutations, outputs, pptx, preview
 from minial_agent.integrations.fs.models import FsList, FsMutation, FsPreview, FsSearch
+from minial_agent.integrations.pptx.model import (
+    PptxDeck,
+    PptxExportResponse,
+    PptxOperation,
+    PptxOperationResponse,
+    PptxSearchResponse,
+)
 
 
 class WorkspaceFsService:
@@ -97,6 +104,72 @@ class WorkspaceFsService:
             path=path,
             name=name,
         )
+
+    def update_pptx_text_shape(
+        self,
+        *,
+        user_id: str,
+        uuid: str,
+        path: str,
+        slide_number: int,
+        shape_id: int,
+        text: str | None,
+        bounds: dict[str, int] | None,
+    ) -> FsMutation:
+        return mutations.update_pptx_text_shape(
+            user_id=user_id,
+            uuid=uuid,
+            path=path,
+            slide_number=slide_number,
+            shape_id=shape_id,
+            text=text,
+            bounds=bounds,
+        )
+
+    def pptx_deck(self, *, user_id: str, uuid: str, path: str) -> tuple[FsMutation, PptxDeck]:
+        return pptx.pptx_deck(user_id=user_id, uuid=uuid, path=path)
+
+    def pptx_operations(
+        self,
+        *,
+        user_id: str,
+        uuid: str,
+        path: str,
+        origin: str,
+        expected_revision: int,
+        operations: list[PptxOperation],
+    ) -> PptxOperationResponse:
+        return pptx.pptx_operations(
+            user_id=user_id,
+            uuid=uuid,
+            path=path,
+            origin=origin,
+            expected_revision=expected_revision,
+            operations=operations,
+        )
+
+    def pptx_search(
+        self,
+        *,
+        user_id: str,
+        uuid: str,
+        path: str,
+        query: str,
+        limit: int,
+    ) -> PptxSearchResponse:
+        return pptx.pptx_search(
+            user_id=user_id,
+            uuid=uuid,
+            path=path,
+            query=query,
+            limit=limit,
+        )
+
+    def pptx_export_pdf(self, *, user_id: str, uuid: str, path: str) -> PptxExportResponse:
+        return pptx.pptx_export_pdf(user_id=user_id, uuid=uuid, path=path)
+
+    def pptx_export_file(self, *, user_id: str, uuid: str, path: str) -> PptxExportResponse:
+        return pptx.pptx_export_file(user_id=user_id, uuid=uuid, path=path)
 
 
 workspace_fs_service = WorkspaceFsService()

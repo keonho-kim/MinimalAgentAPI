@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
+from pptx import Presentation
 
 from minial_agent.api.fs.router import router as fs_router
 from minial_agent.integrations.upload import ensure_upload_workspace
@@ -13,6 +14,10 @@ def test_preview_metadata_for_supported_file_types(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr(
         "minial_agent.integrations.fs.preview.convert_to_pdf",
         _fake_convert_to_pdf,
+    )
+    monkeypatch.setattr(
+        "minial_agent.integrations.fs.preview.build_pptx_preview",
+        lambda _path: {"slide_count": 1, "slides": []},
     )
     workspace = ensure_upload_workspace(tmp_path / "user")
     (workspace.files_dir / "sample.pdf").write_bytes(b"%PDF-1.7\n")
@@ -67,6 +72,8 @@ def test_preview_metadata_for_supported_file_types(tmp_path, monkeypatch) -> Non
         assert body["path"] == f"files/{filename}"
         assert body["filename"] == filename
         assert body["preview_type"] == preview_type
+        if filename == "slides.pptx":
+            assert body["presentation"]["slide_count"] == 1
 
 
 def test_preview_rejects_internal_paths(tmp_path, monkeypatch) -> None:
@@ -153,6 +160,157 @@ def test_xlsx_preview_returns_grid_data_and_sheet_order(tmp_path, monkeypatch) -
     assert workbook["sheets"][0]["cells"][0]["address"] == "A1"
     assert workbook["sheets"][0]["cells"][0]["value"] == "Revenue"
     assert workbook["sheets"][1]["cells"][0]["value"] == "Region"
+
+
+def test_pptx_operations_change_editable_shape(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "minial_agent.integrations.fs.preview.convert_to_pdf",
+        _fake_convert_to_pdf,
+    )
+    workspace = ensure_upload_workspace(tmp_path / "user")
+    path = workspace.files_dir / "slides.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Old title"
+    title_shape_id = slide.shapes.title.shape_id
+    presentation.save(path)
+
+    deck_response = _client().get(
+        "/api/fs/pptx/deck",
+        params={"user_id": "user", "uuid": "session", "path": "files/slides.pptx"},
+    )
+    assert deck_response.status_code == 200
+    deck = deck_response.json()["deck"]
+    element_id = f"shape-{title_shape_id}"
+
+    response = _client().post(
+        "/api/fs/pptx/operations",
+        json={
+            "user_id": "user",
+            "uuid": "session",
+            "path": "files/slides.pptx",
+            "origin": "user",
+            "expected_revision": deck["revision"],
+            "operations": [
+                {
+                    "type": "updateText",
+                    "slideId": "slide-1",
+                    "elementId": element_id,
+                    "content": "New title",
+                },
+                {
+                    "type": "moveElement",
+                    "slideId": "slide-1",
+                    "elementId": element_id,
+                    "x": 457200,
+                    "y": 365760,
+                },
+                {
+                    "type": "resizeElement",
+                    "slideId": "slide-1",
+                    "elementId": element_id,
+                    "width": 2743200,
+                    "height": 914400,
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 1
+    edited = Presentation(path)
+    edited_title = edited.slides[0].shapes.title
+    assert edited_title.text == "New title"
+    assert int(edited_title.left) == 457200
+    assert int(edited_title.top) == 365760
+    assert int(edited_title.width) == 2743200
+    assert int(edited_title.height) == 914400
+
+
+def test_pptx_search_uses_fts_index(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    workspace = ensure_upload_workspace(tmp_path / "user")
+    path = workspace.files_dir / "slides.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Quarterly review"
+    slide.placeholders[1].text = "Revenue grew 12 percent"
+    presentation.save(path)
+
+    response = _client().get(
+        "/api/fs/pptx/search",
+        params={
+            "user_id": "user",
+            "uuid": "session",
+            "path": "files/slides.pptx",
+            "q": "Revenue",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matches"][0]["slideId"] == "slide-1"
+
+
+def test_pptx_ai_operation_respects_manual_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    workspace = ensure_upload_workspace(tmp_path / "user")
+    path = workspace.files_dir / "slides.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Old title"
+    title_shape_id = slide.shapes.title.shape_id
+    presentation.save(path)
+
+    deck = _client().get(
+        "/api/fs/pptx/deck",
+        params={"user_id": "user", "uuid": "session", "path": "files/slides.pptx"},
+    ).json()["deck"]
+    element_id = f"shape-{title_shape_id}"
+    user_response = _client().post(
+        "/api/fs/pptx/operations",
+        json={
+            "user_id": "user",
+            "uuid": "session",
+            "path": "files/slides.pptx",
+            "origin": "user",
+            "expected_revision": deck["revision"],
+            "operations": [
+                {
+                    "type": "updateText",
+                    "slideId": "slide-1",
+                    "elementId": element_id,
+                    "content": "Manual title",
+                },
+            ],
+        },
+    )
+    assert user_response.status_code == 200
+
+    ai_response = _client().post(
+        "/api/fs/pptx/operations",
+        json={
+            "user_id": "user",
+            "uuid": "session",
+            "path": "files/slides.pptx",
+            "origin": "ai",
+            "expected_revision": user_response.json()["revision"],
+            "operations": [
+                {
+                    "type": "updateText",
+                    "slideId": "slide-1",
+                    "elementId": element_id,
+                    "content": "AI title",
+                },
+            ],
+        },
+    )
+
+    assert ai_response.status_code == 200
+    body = ai_response.json()
+    assert body["changed_slide_ids"] == []
+    assert body["rejected_operations"]
+    assert Presentation(path).slides[0].shapes.title.text == "Manual title"
 
 
 def _fake_convert_to_pdf(source_path: Path, output_dir: Path, target_pdf: Path) -> None:

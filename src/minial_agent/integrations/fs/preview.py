@@ -10,6 +10,7 @@ from minial_agent.integrations.fs.workspace import get_workspace
 from minial_agent.integrations.upload.conversion import ConversionError, convert_to_pdf
 from minial_agent.integrations.upload.visibility import physical_to_public_workspace_path
 from minial_agent.integrations.upload.xlsx import build_xlsx_preview
+from minial_agent.integrations.pptx.preview import build_pptx_preview
 
 
 SOURCE_PREVIEW_TYPES = {
@@ -64,6 +65,18 @@ def preview_file(*, user_id: str, uuid: str, path: str) -> FsPreview:
 
     if preview_type == "office_pdf":
         office_pdf_path(workspace.cache_dir, target)
+        presentation = (
+            pptx_preview(workspace.cache_dir, target)
+            if file_type == "pptx"
+            else None
+        )
+        return FsPreview(
+            path=public_path,
+            filename=target.name,
+            file_type=file_type,
+            preview_type=preview_type,
+            presentation=presentation,
+        )
 
     return FsPreview(
         path=public_path,
@@ -132,3 +145,20 @@ def xlsx_preview(cache_dir: Path, source_path: Path) -> dict:
         encoding="utf-8",
     )
     return workbook
+
+
+def pptx_preview(cache_dir: Path, source_path: Path) -> dict:
+    preview_dir = preview_cache_dir(cache_dir, source_path)
+    preview_path = preview_dir / "presentation.json"
+    if preview_path.is_file():
+        return json.loads(preview_path.read_text(encoding="utf-8"))
+
+    try:
+        presentation = build_pptx_preview(source_path)
+    except Exception as exc:
+        raise WorkspaceFsError(422, f"Failed to inspect PPTX: {exc}") from exc
+    preview_path.write_text(
+        json.dumps(presentation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return presentation

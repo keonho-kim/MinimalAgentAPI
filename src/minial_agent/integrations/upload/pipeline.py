@@ -7,6 +7,7 @@ from starlette.datastructures import UploadFile
 from minial_agent.common.locks import WorkspaceLockManager, workspace_lock_manager
 
 from minial_agent.integrations.upload.artifacts import build_upload_artifacts
+from minial_agent.integrations.upload.conversion import convert_to_office_format
 from minial_agent.integrations.upload.models import UploadedFileResult, UploadWorkspace
 from minial_agent.integrations.upload.registry import UploadRegistry
 from minial_agent.integrations.upload.storage import (
@@ -14,9 +15,17 @@ from minial_agent.integrations.upload.storage import (
     UploadItem,
     reserve_uploads,
     save_upload_file,
+    unique_path,
 )
 from minial_agent.integrations.upload.visibility import physical_to_public_workspace_path
 from minial_agent.integrations.upload.workspace import ensure_upload_workspace, get_workspace_root
+
+
+LEGACY_OFFICE_TARGETS = {
+    "doc": "docx",
+    "ppt": "pptx",
+    "xls": "xlsx",
+}
 
 
 class UploadPipeline:
@@ -73,14 +82,38 @@ class UploadPipeline:
             )
 
         converted_dir = workspace.converted_dir / item.file_id
+        source_path = item.source_path
+        file_type = item.file_type
 
         try:
             await save_upload_file(item.file, item.source_path)
+            target_file_type = LEGACY_OFFICE_TARGETS.get(item.file_type)
+            if target_file_type:
+                source_path = unique_path(
+                    workspace.files_dir / f"{item.source_path.stem}.{target_file_type}"
+                )
+                await asyncio.to_thread(
+                    convert_to_office_format,
+                    item.source_path,
+                    converted_dir / f".{target_file_type}",
+                    source_path,
+                    target_file_type,
+                )
+                item.source_path.unlink(missing_ok=True)
+                registry.remove_by_visible_path(str(item.source_path))
+                registry.add_uploaded(
+                    file_id=item.file_id,
+                    visible_path=source_path,
+                    visible_name=source_path.name,
+                    file_type=target_file_type,
+                    converted_dir=converted_dir,
+                )
+                file_type = target_file_type
             await asyncio.to_thread(
                 build_upload_artifacts,
-                source_path=item.source_path,
+                source_path=source_path,
                 file_id=item.file_id,
-                file_type=item.file_type,
+                file_type=file_type,
                 converted_dir=converted_dir,
                 cache_dir=workspace.cache_dir,
             )
@@ -88,12 +121,12 @@ class UploadPipeline:
                 registry.update_status(item.file_id, status="converted")
             return UploadedFileResult(
                 file_id=item.file_id,
-                filename=item.source_path.name,
-                file_type=item.file_type,
+                filename=source_path.name,
+                file_type=file_type,
                 status="converted",
                 path=physical_to_public_workspace_path(
                     workspace.files_dir,
-                    item.source_path,
+                    source_path,
                 ),
             )
         except Exception as exc:
@@ -106,8 +139,8 @@ class UploadPipeline:
                 )
             return UploadedFileResult(
                 file_id=item.file_id,
-                filename=item.source_path.name,
-                file_type=item.file_type,
+                filename=source_path.name,
+                file_type=file_type,
                 status="conversion_failed",
                 error=error,
             )

@@ -2,6 +2,7 @@ import json
 import shutil
 from pathlib import Path
 
+from minial_agent.integrations.pptx.ingest import load_or_ingest_pptx_deck
 from minial_agent.integrations.upload.conversion import convert_to_pdf, copy_pdf, render_pdf_pages
 from minial_agent.integrations.upload.xlsx import build_xlsx_artifacts
 
@@ -34,6 +35,8 @@ def build_upload_artifacts(
             converted_dir=converted_dir,
             cache_dir=cache_dir,
         )
+    if file_type == "pptx":
+        load_or_ingest_pptx_deck(cache_dir=cache_dir, source_path=source_path)
 
     manifest = {
         "file_id": file_id,
@@ -55,6 +58,8 @@ def build_upload_artifacts(
     if file_type == "xlsx":
         manifest["workbook_index_path"] = str(workbook_index_path)
         manifest["sheet_pages_root"] = str(sheet_pages_root)
+    if file_type == "pptx":
+        manifest["deck_store"] = str(cache_dir / "pptx_decks")
 
     (converted_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

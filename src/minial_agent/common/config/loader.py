@@ -55,6 +55,15 @@ def set_config(file_name: str = "env.backend.toml") -> None:
             _llm_summary_config.get("keep_messages", 20)
         )
 
+        # LOAD VLM CONFIG
+        _vlm_config = data.get("vlm", {})
+        os.environ["VLM_MAX_CONCURRENCY"] = str(
+            _positive_int(
+                _vlm_config.get("max_concurrency", 20),
+                name="vlm.max_concurrency",
+            )
+        )
+
 
 def _find_config_file(file_name: str) -> Path:
     candidates = [Path.cwd(), *Path(__file__).resolve().parents]

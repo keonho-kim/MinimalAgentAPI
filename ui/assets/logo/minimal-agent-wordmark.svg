@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 312 64" role="img" aria-labelledby="title desc">
+  <title id="title">Minimal Agent API Server</title>
+  <desc id="desc">Minimal Agent API Server wordmark.</desc>
+  <g>
+    <rect width="52" height="52" x="0" y="6" rx="12" fill="#1f2320"/>
+    <rect x="14" y="18" width="24" height="6" rx="2.5" fill="#f8f7f4"/>
+    <rect x="14" y="29" width="24" height="6" rx="2.5" fill="#f8f7f4" opacity=".86"/>
+    <rect x="14" y="40" width="24" height="6" rx="2.5" fill="#f8f7f4" opacity=".72"/>
+    <circle cx="41" cy="21" r="4" fill="#2db7a3"/>
+    <circle cx="41" cy="32" r="4" fill="#4b7bec"/>
+    <circle cx="41" cy="43" r="4" fill="#f3b342"/>
+    <circle cx="12" cy="32" r="3.5" fill="#f06f57"/>
+  </g>
+  <text x="68" y="30" fill="#1f2320" font-family="SF Pro Display, Geist Sans, Helvetica Neue, Arial, sans-serif" font-size="21" font-weight="700" letter-spacing="0">Minimal Agent</text>
+  <text x="68" y="48" fill="#5f625c" font-family="SF Pro Display, Geist Sans, Helvetica Neue, Arial, sans-serif" font-size="12" font-weight="650" letter-spacing="1.8">API SERVER</text>
+</svg>

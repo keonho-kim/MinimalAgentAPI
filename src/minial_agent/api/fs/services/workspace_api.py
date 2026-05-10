@@ -69,6 +69,7 @@ class FsApiService:
             preview_type=result.preview_type,
             source_url=source_url,
             workbook=result.workbook,
+            presentation=result.presentation,
         )
 
     def preview_source_path(self, *, user_id: str, uuid: str, path: str) -> Path:
@@ -163,6 +164,29 @@ class FsApiService:
             uuid=uuid,
             path=path,
             name=name,
+        )
+        return FsMutationResponse(path=result.path)
+
+    def update_pptx_text_shape(
+        self,
+        *,
+        user_id: str,
+        uuid: str,
+        path: str,
+        slide_number: int,
+        shape_id: int,
+        text: str | None,
+        bounds: dict[str, int] | None,
+    ) -> FsMutationResponse:
+        result = self._call(
+            self.fs_service.update_pptx_text_shape,
+            user_id=user_id,
+            uuid=uuid,
+            path=path,
+            slide_number=slide_number,
+            shape_id=shape_id,
+            text=text,
+            bounds=bounds,
         )
         return FsMutationResponse(path=result.path)
 

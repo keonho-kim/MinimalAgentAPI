@@ -13,8 +13,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
+  onOpenActivityFile,
 }: {
   messages: UiMessage[];
+  onOpenActivityFile?(path: string): void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -45,7 +47,11 @@ export const ChatMessageList = memo(function ChatMessageList({
         ) : (
           messages.map((item) =>
             item.kind === "activity-block" ? (
-              <ActivityTimeline item={item} key={item.id} />
+              <ActivityTimeline
+                item={item}
+                key={item.id}
+                onOpenActivityFile={onOpenActivityFile}
+              />
             ) : (
               <MessageCard item={item} key={item.id} />
             ),

@@ -112,7 +112,9 @@ def test_root_main_can_disable_ui_mount(tmp_path, monkeypatch) -> None:
 
 def test_backend_sample_config_loads(monkeypatch) -> None:
     monkeypatch.delenv("MINIAL_AGENT_MOUNT_UI", raising=False)
+    monkeypatch.delenv("VLM_MAX_CONCURRENCY", raising=False)
 
     set_config("env.backend.toml.sample")
 
     assert os.environ["MINIAL_AGENT_MOUNT_UI"] == "true"
+    assert os.environ["VLM_MAX_CONCURRENCY"] == "20"

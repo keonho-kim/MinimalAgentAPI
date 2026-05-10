@@ -6,7 +6,7 @@ from minial_agent.integrations.fs.models import (
     FsPreview,
     FsSearch,
 )
-from minial_agent.integrations.fs.service import (
+from minial_agent.integrations.fs.workspace_service import (
     WorkspaceFsService,
     workspace_fs_service,
 )

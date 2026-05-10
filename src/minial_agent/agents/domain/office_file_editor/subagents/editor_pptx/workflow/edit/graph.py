@@ -9,7 +9,6 @@ from minial_agent.integrations.upload.models import UploadWorkspace
 from minial_agent.integrations.upload.storage import unique_path
 
 from minial_agent.agents.utils.activity import emit_edit_step
-from minial_agent.agents.domain.office_file_editor.utils.edit_protocol import OperationSelector, SlotFiller
 from minial_agent.agents.utils.runtime import sanitize_tool_error, workspace_from_tool_runtime
 from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.workflow.edit.nodes import apply_pptx_edit_spec, build_pptx_edit_spec, register_pptx_edit_result, resolve_pptx_artifact
 from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.workflow.edit.state import PptxEditState
@@ -18,8 +17,7 @@ from minial_agent.agents.domain.office_file_editor.subagents.editor_pptx.workflo
 def build_pptx_edit_workflow(
     workspace: UploadWorkspace,
     *,
-    operation_selector: OperationSelector | None = None,
-    slot_filler: SlotFiller | None = None,
+    operation_generator=None,
 ):
     graph = StateGraph(PptxEditState)
     graph.add_node(
@@ -30,8 +28,8 @@ def build_pptx_edit_workflow(
         "build_pptx_edit_spec",
         lambda state: _build_pptx_edit_spec(
             state,
-            operation_selector=operation_selector,
-            slot_filler=slot_filler,
+            workspace=workspace,
+            operation_generator=operation_generator,
         ),
     )
     graph.add_node(
@@ -75,8 +73,8 @@ def _resolve_pptx_artifact(
 def _build_pptx_edit_spec(
     state: PptxEditState,
     *,
-    operation_selector: OperationSelector | None,
-    slot_filler: SlotFiller | None,
+    workspace: UploadWorkspace,
+    operation_generator,
 ) -> PptxEditState:
     emit_edit_step(
         file_type="pptx",
@@ -85,16 +83,17 @@ def _build_pptx_edit_spec(
         details={"path": state["artifact"].visible_name},
     )
     edit_spec = build_pptx_edit_spec(
+        workspace=workspace,
+        artifact=state["artifact"],
         instruction=state.get("instruction", ""),
-        operation_selector=operation_selector,
-        slot_filler=slot_filler,
+        operation_generator=operation_generator,
     )
     emit_edit_step(
         file_type="pptx",
         step="spec",
-        message=f"PPTX 수정 작업을 {edit_spec['operation']} 방식으로 준비했습니다.",
+        message=f"PPTX 수정 작업 {len(edit_spec['operations'])}개를 준비했습니다.",
         status="completed",
-        details={"path": state["artifact"].visible_name, "description": str(edit_spec["operation"])},
+        details={"path": state["artifact"].visible_name, "description": f"{len(edit_spec['operations'])} operations"},
     )
     return {"edit_spec": edit_spec}
 
@@ -116,6 +115,7 @@ def _apply_pptx_edit_spec(
         suffix=".pptx",
     )
     changed_items = apply_pptx_edit_spec(
+        workspace=workspace,
         artifact=state["artifact"],
         edit_spec=state["edit_spec"],
         edited_path=edited_path,

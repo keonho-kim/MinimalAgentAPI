@@ -27,8 +27,10 @@ const MessageRenderer = lazy(() =>
 
 export const ActivityTimeline = memo(function ActivityTimeline({
   item,
+  onOpenActivityFile,
 }: {
   item: ActivityBlockMessage;
+  onOpenActivityFile?(path: string): void;
 }) {
   const running = hasRunningActivity(item.entries);
 
@@ -58,9 +60,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
           ) : (
             <div className="flex min-w-0 items-baseline gap-2" key={entry.id}>
-              <span className="min-w-0 whitespace-normal break-words">
-                {entry.detail}
-              </span>
+              <ActivityEntryDetail
+                entry={entry}
+                onOpenActivityFile={onOpenActivityFile}
+              />
               {entry.status && entry.status !== "completed" ? (
                 <span className="shrink-0 text-[11px]">
                   {formatActivityStatus(entry.status)}
@@ -73,6 +76,44 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     </details>
   );
 });
+
+function ActivityEntryDetail({
+  entry,
+  onOpenActivityFile,
+}: {
+  entry: ActivityBlockMessage["entries"][number];
+  onOpenActivityFile?(path: string): void;
+}) {
+  const target = fileChangeTarget(entry);
+  if (!target || !onOpenActivityFile) {
+    return (
+      <span className="min-w-0 whitespace-normal break-words">
+        {entry.detail}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      className="min-w-0 whitespace-normal break-words text-left underline decoration-border underline-offset-4 hover:text-foreground hover:decoration-foreground"
+      title={`${target} 파일을 파일 드로어에서 보기`}
+      type="button"
+      onClick={() => onOpenActivityFile(target)}
+    >
+      {entry.detail}
+    </button>
+  );
+}
+
+function fileChangeTarget(entry: ActivityBlockMessage["entries"][number]) {
+  if (
+    entry.status === "error" ||
+    (entry.category !== "file-create" && entry.category !== "file-edit")
+  ) {
+    return null;
+  }
+  return entry.target ?? null;
+}
 
 function primaryCategory(item: ActivityBlockMessage) {
   return (

@@ -4,10 +4,21 @@ from minial_agent.api.fs.schemas.files import (
     FsListResponse,
     FsMoveRequest,
     FsMutationResponse,
+    FsPptxTextShapeBoundsRequest,
+    FsPptxTextShapeRequest,
     FsRenameRequest,
     FsSearchResponse,
 )
 from minial_agent.api.fs.schemas.preview import FsPreviewResponse
+from minial_agent.integrations.pptx.model import (
+    PptxDeckResponse,
+    PptxExportRequest,
+    PptxExportResponse,
+    PptxOperation,
+    PptxOperationRequest,
+    PptxOperationResponse,
+    PptxSearchResponse,
+)
 
 __all__ = [
     "FsCreateRequest",
@@ -15,7 +26,16 @@ __all__ = [
     "FsListResponse",
     "FsMoveRequest",
     "FsMutationResponse",
+    "FsPptxTextShapeBoundsRequest",
+    "FsPptxTextShapeRequest",
     "FsPreviewResponse",
     "FsRenameRequest",
     "FsSearchResponse",
+    "PptxDeckResponse",
+    "PptxExportRequest",
+    "PptxExportResponse",
+    "PptxOperation",
+    "PptxOperationRequest",
+    "PptxOperationResponse",
+    "PptxSearchResponse",
 ]

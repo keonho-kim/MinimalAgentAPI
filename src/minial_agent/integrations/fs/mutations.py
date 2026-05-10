@@ -10,6 +10,7 @@ from minial_agent.integrations.fs.errors import WorkspaceFsError
 from minial_agent.integrations.fs.models import FsMutation
 from minial_agent.integrations.fs.paths import (
     resolve_existing_path,
+    resolve_file,
     resolve_public_path,
     validate_visible_name,
 )
@@ -17,6 +18,7 @@ from minial_agent.integrations.fs.workspace import get_workspace
 from minial_agent.integrations.upload import UploadRegistry
 from minial_agent.integrations.upload.models import UploadWorkspace
 from minial_agent.integrations.upload.visibility import physical_to_public_workspace_path
+from minial_agent.integrations.pptx.editing import update_pptx_text_shape as update_pptx_shape
 
 
 def create_file(
@@ -95,6 +97,37 @@ def rename_path(
     _move_or_rename_path(workspace, source=source, destination=destination)
     return FsMutation(
         path=physical_to_public_workspace_path(workspace.files_dir, destination)
+    )
+
+
+def update_pptx_text_shape(
+    *,
+    user_id: str,
+    uuid: str,
+    path: str,
+    slide_number: int,
+    shape_id: int,
+    text: str | None,
+    bounds: dict[str, int] | None,
+) -> FsMutation:
+    workspace = get_workspace(user_id=user_id, uuid=uuid)
+    target = resolve_file(workspace.files_dir, path)
+    if target.suffix.lower() != ".pptx":
+        raise WorkspaceFsError(400, "Workspace file is not a PPTX file.")
+
+    try:
+        update_pptx_shape(
+            workspace=workspace,
+            source_path=target,
+            slide_number=slide_number,
+            shape_id=shape_id,
+            text=text,
+            bounds=bounds,
+        )
+    except ValueError as exc:
+        raise WorkspaceFsError(400, str(exc)) from exc
+    return FsMutation(
+        path=physical_to_public_workspace_path(workspace.files_dir, target)
     )
 
 

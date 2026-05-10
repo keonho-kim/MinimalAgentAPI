@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import fitz
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from minial_agent.api.processor.router import router as processor_router
 from minial_agent.integrations.upload import ensure_upload_workspace
+from minial_agent.integrations.upload import conversion
 from minial_agent.integrations.upload.pipeline import UploadPipeline
 from minial_agent.integrations.upload.xlsx import inspect_workbook
 
@@ -184,6 +186,96 @@ def test_upload_replaces_only_unsafe_filename_characters(
     assert uploaded["path"] == "files/AX_HUB_구축_.pdf"
 
 
+@pytest.mark.parametrize(
+    ("source_extension", "target_extension", "media_type"),
+    [
+        ("ppt", "pptx", "application/vnd.ms-powerpoint"),
+        ("doc", "docx", "application/msword"),
+        ("xls", "xlsx", "application/vnd.ms-excel"),
+    ],
+)
+def test_upload_legacy_office_converts_and_registers_ooxml(
+    source_extension,
+    target_extension,
+    media_type,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ROOT_DIR", str(tmp_path))
+    pipeline_module = importlib.import_module("minial_agent.integrations.upload.pipeline")
+
+    def fake_convert_to_office_format(
+        source_path: Path,
+        output_dir: Path,
+        target_path: Path,
+        target_format: str,
+    ) -> None:
+        assert source_path.suffix == f".{source_extension}"
+        assert target_path.suffix == f".{target_extension}"
+        assert target_format == target_extension
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(target_extension.encode())
+
+    def fake_build_upload_artifacts(**kwargs) -> None:
+        converted_dir = kwargs["converted_dir"]
+        converted_dir.mkdir(parents=True, exist_ok=True)
+        (converted_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "file_id": kwargs["file_id"],
+                    "source_filename": kwargs["source_path"].name,
+                    "source_path": str(kwargs["source_path"]),
+                    "file_type": kwargs["file_type"],
+                    "converted_dir": str(converted_dir),
+                    "pages": [],
+                    "status": "converted",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "convert_to_office_format",
+        fake_convert_to_office_format,
+    )
+    monkeypatch.setattr(pipeline_module, "build_upload_artifacts", fake_build_upload_artifacts)
+    app = FastAPI()
+    app.include_router(processor_router)
+    client = TestClient(app)
+    router_module = importlib.import_module("minial_agent.api.processor.router")
+    original_pipeline = router_module.processor_service.upload_pipeline
+    router_module.processor_service.upload_pipeline = UploadPipeline()
+    try:
+        response = client.post(
+            "/api/upload",
+            data={"user_id": "user", "uuid": "session"},
+            files=[
+                (
+                    "files",
+                    (
+                        f"legacy.{source_extension}",
+                        source_extension.encode(),
+                        media_type,
+                    ),
+                )
+            ],
+        )
+    finally:
+        router_module.processor_service.upload_pipeline = original_pipeline
+
+    assert response.status_code == 200
+    uploaded = response.json()["uploaded_files"][0]
+    assert uploaded["filename"] == f"legacy.{target_extension}"
+    assert uploaded["file_type"] == target_extension
+    assert uploaded["path"] == f"files/legacy.{target_extension}"
+    assert not (tmp_path / "user" / "files" / f"legacy.{source_extension}").exists()
+    assert (tmp_path / "user" / "files" / f"legacy.{target_extension}").is_file()
+    registry = json.loads((tmp_path / "user" / ".registry" / "files.json").read_text())
+    assert registry["files"][0]["file_type"] == target_extension
+    assert registry["files"][0]["visible_name"] == f"legacy.{target_extension}"
+
+
 def test_upload_unsupported_extension_returns_per_file_failure(
     tmp_path,
     monkeypatch,
@@ -232,6 +324,42 @@ def test_upload_pipeline_locks_by_user_id(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert lock_manager.keys == ["user"]
+
+
+def test_render_pdf_pages_repairs_mupdf_structure_error(tmp_path, monkeypatch) -> None:
+    pdf_path = tmp_path / "source.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\nbroken")
+    calls: list[Path] = []
+
+    def fake_render_once(path: Path, pages_dir: Path):
+        calls.append(path)
+        if len(calls) == 1:
+            raise conversion.ConversionError(
+                "Failed to render PDF page: MuPDF error: format error: "
+                "No common ancestor in structure tree"
+            )
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        (pages_dir / "page_001.png").write_bytes(b"png")
+        return [
+            conversion.UploadedPage(
+                page_number=1,
+                image_filename="page_001.png",
+                image_path=str(pages_dir / "page_001.png"),
+            )
+        ]
+
+    def fake_repair(*, source_pdf: Path, repaired_pdf: Path) -> None:
+        assert source_pdf == pdf_path
+        repaired_pdf.write_bytes(b"%PDF-1.7\nrepaired")
+
+    monkeypatch.setattr(conversion, "_render_pdf_pages_once", fake_render_once)
+    monkeypatch.setattr(conversion, "_repair_pdf", fake_repair)
+
+    pages = conversion.render_pdf_pages(pdf_path, tmp_path / "pages")
+
+    assert [path.name for path in calls] == ["source.pdf", "source.repaired.pdf"]
+    assert pages[0].image_filename == "page_001.png"
+    assert not (tmp_path / "source.repaired.pdf").exists()
 
 
 def test_inspect_workbook_reads_sheet_metadata(tmp_path) -> None:

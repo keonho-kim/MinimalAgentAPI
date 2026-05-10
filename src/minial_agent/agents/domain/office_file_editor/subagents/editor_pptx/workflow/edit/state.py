@@ -6,6 +6,7 @@ class PptxEditState(TypedDict, total=False):
     file_ref: str
     instruction: str
     artifact: Any
+    deck: Any
     edit_spec: dict[str, Any]
     edited_path: Path
     changed_items: list[dict[str, Any]]

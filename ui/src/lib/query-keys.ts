@@ -5,6 +5,9 @@ export const queryKeys = {
   filePreview(userId: string, sessionUuid: string, path: string) {
     return ["file-preview", userId, sessionUuid, path] as const;
   },
+  pptxDeck(userId: string, sessionUuid: string, path: string) {
+    return ["pptx-deck", userId, sessionUuid, path] as const;
+  },
   fileSearch(userId: string, sessionUuid: string, query: string, limit: number) {
     return ["file-search", userId, sessionUuid, query, limit] as const;
   },

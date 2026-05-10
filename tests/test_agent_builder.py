@@ -211,6 +211,7 @@ def test_agent_prompts_use_core_read_tools_and_edit_subagents() -> None:
     assert "read_docx_file" in DOCX_AGENT_SYSTEM_PROMPT
     assert "edit_hwpx" in HWPX_AGENT_SYSTEM_PROMPT
     assert "read_hwpx_file" in HWPX_AGENT_SYSTEM_PROMPT
+    assert "inspect_pptx_deck" in PPTX_AGENT_SYSTEM_PROMPT
     assert "edit_pptx" in PPTX_AGENT_SYSTEM_PROMPT
     assert "read_pptx_file" in PPTX_AGENT_SYSTEM_PROMPT
     assert "start_xlsx_session" in XLSX_AGENT_SYSTEM_PROMPT
@@ -302,7 +303,7 @@ def test_office_edit_subagents_use_create_agent_with_edit_tools(monkeypatch) -> 
     assert [[tool.name for tool in call["tools"]] for call in captured_calls] == [
         [*read_tool_names, "edit_hwpx"],
         [*read_tool_names, "edit_docx"],
-        [*read_tool_names, "edit_pptx"],
+        [*read_tool_names, "inspect_pptx_deck", "edit_pptx"],
         [*read_tool_names, *xlsx_tools],
     ]
     worker_hitl = {

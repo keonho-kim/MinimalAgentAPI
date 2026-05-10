@@ -17,6 +17,7 @@ LLM_ENV_KEYS = [
     "LLM_KWARGS",
     "LLM_TLS_VERIFY",
     "LLM_CA_BUNDLE_PATH",
+    "VLM_MAX_CONCURRENCY",
 ]
 
 
@@ -189,6 +190,9 @@ tls_verify=true
 [llm.kwargs]
 temperature=0.2
 top_p=0.9
+
+[vlm]
+max_concurrency=12
 """.strip(),
         encoding="utf-8",
     )
@@ -209,3 +213,4 @@ top_p=0.9
         "temperature": 0.2,
         "top_p": 0.9,
     }
+    assert os.environ["VLM_MAX_CONCURRENCY"] == "12"
