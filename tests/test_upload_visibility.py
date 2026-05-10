@@ -1,4 +1,5 @@
 import base64
+import importlib
 import json
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -29,6 +30,8 @@ from minial_agent.integrations.upload.visibility import (
 )
 from minial_agent.integrations.xlsx.exports import commit_workbook
 from minial_agent.integrations.xlsx.sessions import XlsxSessionStore
+
+read_documents_module = importlib.import_module("minial_agent.agents.tools.read_documents")
 
 
 def test_normalize_public_workspace_path_rejects_internal_paths() -> None:
@@ -262,6 +265,40 @@ def test_workflow_uses_configured_page_scan_batch_size(tmp_path, monkeypatch) ->
     assert "page_011.png" not in scanned_pages
 
 
+def test_workflow_full_scan_reads_all_pages(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_PAGE_SCAN_BATCH_SIZE", "10")
+    workspace = ensure_upload_workspace(tmp_path)
+    _register_converted_file(
+        workspace,
+        filename="report.docx",
+        file_type="docx",
+        page_count=25,
+    )
+    scanned_pages = []
+
+    def page_scanner(path, _question):
+        scanned_pages.append(path.name)
+        return "matched page" if path.name == "page_012.png" else "None"
+
+    def evidence_judge(_question, _evidence):
+        raise AssertionError("full_scan should not stop on sufficiency checks")
+
+    workflow = build_docx_read_workflow(
+        workspace,
+        page_scanner=page_scanner,
+        evidence_judge=evidence_judge,
+    )
+
+    result = workflow.invoke(
+        {"file_ref": "file_001", "question": "summary?", "full_scan": True}
+    )
+
+    assert result["result"] == "page_12: matched page"
+    assert result["scanned_pages"] == 25
+    assert result["is_sufficient"] is True
+    assert "page_025.png" in scanned_pages
+
+
 def test_workflow_continues_when_page_evidence_is_not_sufficient(tmp_path) -> None:
     workspace = ensure_upload_workspace(tmp_path)
     _register_converted_file(
@@ -290,6 +327,64 @@ def test_workflow_continues_when_page_evidence_is_not_sufficient(tmp_path) -> No
         "page_12: matched page_012.png\npage_23: matched page_023.png"
     )
     assert result["scanned_pages"] == 25
+
+
+def test_read_tool_schema_exposes_full_scan() -> None:
+    assert read_documents_module.read_docx_file.args["full_scan"] == {
+        "default": 0,
+        "title": "Full Scan",
+        "type": "integer",
+    }
+
+
+def test_read_tool_passes_full_scan_to_workflow(monkeypatch) -> None:
+    captured = {}
+
+    class FakeWorkflow:
+        def invoke(self, state):
+            captured["state"] = state
+            return {"result": "ok"}
+
+    def fake_build_docx_read_workflow(workspace):
+        captured["workspace"] = workspace
+        return FakeWorkflow()
+
+    monkeypatch.setattr(
+        read_documents_module,
+        "workspace_from_tool_runtime",
+        lambda _runtime: "workspace",
+    )
+    monkeypatch.setattr(
+        read_documents_module,
+        "build_docx_read_workflow",
+        fake_build_docx_read_workflow,
+    )
+
+    result = read_documents_module.read_docx_file.func(
+        file_path="/report.docx",
+        question="summary?",
+        runtime=object(),
+        full_scan=1,
+    )
+
+    assert result == "ok"
+    assert captured["workspace"] == "workspace"
+    assert captured["state"] == {
+        "file_ref": "/report.docx",
+        "question": "summary?",
+        "full_scan": True,
+    }
+
+
+def test_read_tool_rejects_invalid_full_scan() -> None:
+    result = read_documents_module.read_docx_file.func(
+        file_path="/report.docx",
+        question="summary?",
+        runtime=object(),
+        full_scan=2,
+    )
+
+    assert result == "full_scan must be 0 or 1."
 
 
 def test_scan_page_uses_standard_image_block_with_filename(

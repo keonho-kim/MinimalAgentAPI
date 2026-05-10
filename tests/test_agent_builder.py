@@ -196,6 +196,8 @@ def test_agent_prompts_use_core_read_tools_and_edit_subagents() -> None:
     assert "read_hwpx_file" in CORE_AGENT_SYSTEM_PROMPT
     assert "read_pptx_file" in CORE_AGENT_SYSTEM_PROMPT
     assert "read_xlsx_file" in CORE_AGENT_SYSTEM_PROMPT
+    assert "full_scan=1" in CORE_AGENT_SYSTEM_PROMPT
+    assert "full_scan=0" in CORE_AGENT_SYSTEM_PROMPT
     assert "matching edit subagent" in CORE_AGENT_SYSTEM_PROMPT
     assert "Do not read PDF or office binary files directly" in CORE_AGENT_SYSTEM_PROMPT
 

@@ -1,3 +1,4 @@
+import json
 import re
 
 from minial_agent.common.utils.file_registry import resolve_artifact
@@ -6,6 +7,9 @@ from minial_agent.integrations.upload.resolver import ResolvedUploadArtifact
 from minial_agent.integrations.xlsx.dataframes import profile_dataframe, preview_dataframe
 from minial_agent.integrations.xlsx.ranges import range_to_dataframe, read_range
 from minial_agent.integrations.xlsx.workbook import inspect_workbook as inspect_xlsx_workbook
+
+from minial_agent.agents.tools.read_documents.xlsx.state import XlsxReadState
+from minial_agent.agents.utils.activity import emit_read_step
 
 
 def resolve_xlsx_artifact(
@@ -71,6 +75,100 @@ def answer_xlsx(*, artifact: ResolvedUploadArtifact, question: str) -> dict:
         ),
     }
     return result
+
+
+def resolve_xlsx_artifact_node(
+    state: XlsxReadState,
+    *,
+    workspace: UploadWorkspace,
+) -> XlsxReadState:
+    emit_read_step(
+        file_type="xlsx",
+        step="resolve",
+        message="XLSX 파일을 확인합니다.",
+        details={"path": state["file_ref"]},
+    )
+    artifact = resolve_xlsx_artifact(workspace, state["file_ref"])
+    emit_read_step(
+        file_type="xlsx",
+        step="resolve",
+        message="XLSX 파일 확인을 완료했습니다.",
+        status="completed",
+        details={"path": artifact.visible_name},
+    )
+    return {"artifact": artifact}
+
+
+def inspect_workbook_node(state: XlsxReadState) -> XlsxReadState:
+    emit_read_step(
+        file_type="xlsx",
+        step="workbook",
+        message="XLSX 시트 구성을 확인합니다.",
+        details={"path": state["artifact"].visible_name},
+    )
+    workbook = inspect_workbook(state["artifact"])
+    emit_read_step(
+        file_type="xlsx",
+        step="workbook",
+        message=f"XLSX 시트 {workbook.get('sheet_count', 0)}개를 확인했습니다.",
+        status="completed",
+        details={
+            "path": state["artifact"].visible_name,
+            "result": f"{workbook.get('sheet_count', 0)} sheets",
+        },
+    )
+    return {"workbook": workbook}
+
+
+def read_question_range_node(state: XlsxReadState) -> XlsxReadState:
+    emit_read_step(
+        file_type="xlsx",
+        step="range",
+        message="질문에 명시된 XLSX 범위를 확인합니다.",
+    )
+    selected_range = read_question_range(
+        state["artifact"],
+        question=state.get("question", ""),
+        workbook=state.get("workbook", {}),
+    )
+    emit_read_step(
+        file_type="xlsx",
+        step="range",
+        message="XLSX 범위 확인을 완료했습니다.",
+        status="completed",
+        details={"result": "range loaded" if selected_range else "no explicit range"},
+    )
+    return {"selected_range": selected_range}
+
+
+def build_xlsx_answer_node(state: XlsxReadState) -> XlsxReadState:
+    emit_read_step(
+        file_type="xlsx",
+        step="answer",
+        message="XLSX 근거를 정리해 답변을 준비합니다.",
+    )
+    result = {
+        "file_id": state["artifact"].file_id,
+        "filename": state["artifact"].visible_name,
+        "question": state.get("question", ""),
+        "workbook": state.get("workbook", {}),
+        "selected_range": state.get("selected_range", {}),
+        "guidance": (
+            "Use the XLSX editor subagent session tools for calculations, dataframe "
+            "transforms, workbook edits, formulas, or export tasks."
+        ),
+    }
+    emit_read_step(
+        file_type="xlsx",
+        step="answer",
+        message="XLSX 답변 근거 정리를 완료했습니다.",
+        status="completed",
+        details={"result": f"{len(result.get('workbook', {}).get('sheets', []))} sheets"},
+    )
+    return {
+        "answer_payload": result,
+        "result": json.dumps(result, ensure_ascii=False),
+    }
 
 
 def _select_range(*, question: str, workbook: dict) -> dict[str, str] | None:
