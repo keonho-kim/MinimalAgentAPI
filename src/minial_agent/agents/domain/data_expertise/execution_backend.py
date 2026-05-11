@@ -14,13 +14,11 @@ from deepagents.backends.protocol import (
 
 DEFAULT_EXECUTION_TIMEOUT_SECONDS = 300
 MAX_EXECUTION_OUTPUT_BYTES = 100_000
-ALLOWED_COMMANDS = frozenset({"python", "python3", "node", "bun", "uv"})
 PYTHON_COMMANDS = frozenset({"python", "python3"})
-JS_COMMANDS = frozenset({"node", "bun"})
-COMMAND_ALLOWLIST_ERROR = (
-    "Error: only python/python3 via uv, node, and bun commands are allowed "
-    "for data analysis execution."
-)
+DIRECT_HEREDOC_COMMANDS = frozenset({"python", "python3", "node", "bun"})
+SHELL_EXECUTABLE = "bash"
+SHELL_ARGS = ("--noprofile", "--norc", "-lc")
+SHELL_PUNCTUATION_CHARS = "|&;()<>"
 
 
 class DataExecutionBackend(FilesystemBackend, SandboxBackendProtocol):
@@ -47,21 +45,13 @@ class DataExecutionBackend(FilesystemBackend, SandboxBackendProtocol):
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         try:
-            args, stdin = self._parse_command(command)
+            prepared_args, stdin = self._prepare_command(command)
         except ValueError as exc:
             return ExecuteResponse(output=f"Error: invalid command: {exc}", exit_code=2)
 
-        if not args:
+        if not prepared_args:
             return ExecuteResponse(output="Error: command is required.", exit_code=2)
 
-        executable = Path(args[0]).name
-        if executable not in ALLOWED_COMMANDS:
-            return ExecuteResponse(output=COMMAND_ALLOWLIST_ERROR, exit_code=126)
-
-        try:
-            prepared_args = self._prepare_args(executable, args)
-        except PermissionError:
-            return ExecuteResponse(output=COMMAND_ALLOWLIST_ERROR, exit_code=126)
         try:
             completed = subprocess.run(
                 prepared_args,
@@ -91,6 +81,21 @@ class DataExecutionBackend(FilesystemBackend, SandboxBackendProtocol):
             truncated=truncated,
         )
 
+    def _prepare_command(self, command: str) -> tuple[list[str], str | None]:
+        if not command.strip():
+            return [], None
+
+        parsed = self._parse_direct_command(command)
+        if parsed is None:
+            return [SHELL_EXECUTABLE, *SHELL_ARGS, command], None
+
+        args, stdin = parsed
+        if not args:
+            return [], stdin
+
+        executable = Path(args[0]).name
+        return self._prepare_args(executable, args), stdin
+
     def _prepare_args(self, executable: str, args: list[str]) -> list[str]:
         if executable in PYTHON_COMMANDS:
             return self._prepare_uv_python_args(args[1:])
@@ -109,16 +114,11 @@ class DataExecutionBackend(FilesystemBackend, SandboxBackendProtocol):
         ]
 
     def _prepare_explicit_uv_args(self, args: list[str]) -> list[str]:
-        if len(args) < 3:
-            raise PermissionError
-        if args[1] != "run" or Path(args[2]).name not in PYTHON_COMMANDS:
-            raise PermissionError
-        return self._prepare_uv_python_args(args[3:])
+        if len(args) >= 3 and args[1] == "run" and Path(args[2]).name in PYTHON_COMMANDS:
+            return self._prepare_uv_python_args(args[3:])
+        return [args[0], *(self._map_virtual_path_arg(arg) for arg in args[1:])]
 
-    def _parse_command(self, command: str) -> tuple[list[str], str | None]:
-        if not command.strip():
-            return [], None
-
+    def _parse_direct_command(self, command: str) -> tuple[list[str], str | None] | None:
         lines = command.splitlines()
         first_line = lines[0]
         try:
@@ -126,12 +126,47 @@ class DataExecutionBackend(FilesystemBackend, SandboxBackendProtocol):
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-        heredoc = self._extract_heredoc(args, lines[1:])
-        if heredoc is not None:
-            return heredoc
         if len(lines) > 1:
-            raise ValueError("multi-line commands require a supported heredoc.")
+            if self._has_heredoc(args) and self._supports_direct_heredoc(args):
+                heredoc = self._extract_heredoc(args, lines[1:])
+                if heredoc is not None:
+                    return heredoc
+            return None
+        if self._has_shell_syntax(first_line):
+            return None
         return args, None
+
+    def _has_shell_syntax(self, command: str) -> bool:
+        try:
+            lexer = shlex.shlex(
+                command,
+                posix=True,
+                punctuation_chars=SHELL_PUNCTUATION_CHARS,
+            )
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+        return any(
+            token and set(token) <= set(SHELL_PUNCTUATION_CHARS) for token in tokens
+        )
+
+    def _has_heredoc(self, args: list[str]) -> bool:
+        return any(arg == "<<" or arg.startswith("<<") for arg in args)
+
+    def _supports_direct_heredoc(self, args: list[str]) -> bool:
+        if not args:
+            return False
+        executable = Path(args[0]).name
+        if executable in DIRECT_HEREDOC_COMMANDS:
+            return True
+        return (
+            executable == "uv"
+            and len(args) >= 3
+            and args[1] == "run"
+            and Path(args[2]).name in PYTHON_COMMANDS
+        )
 
     def _extract_heredoc(
         self,

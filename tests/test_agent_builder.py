@@ -509,16 +509,17 @@ def test_data_expertise_subagents_use_filesystem_execution_middleware(monkeypatc
     assert team_middleware[3]["patch_tool_calls"] is True
 
 
-def test_data_execution_backend_allows_python_and_blocks_other_commands(tmp_path) -> None:
+def test_data_execution_backend_allows_python_and_basic_shell_commands(tmp_path) -> None:
+    (tmp_path / "sample.txt").write_text("Seoul\nBusan\n", encoding="utf-8")
     backend = DataExecutionBackend(tmp_path)
 
     python_result = backend.execute("python -c 'import pandas; print(2 + 3)'")
-    blocked_result = backend.execute("curl https://example.com")
+    grep_result = backend.execute("grep Seoul /sample.txt")
 
     assert python_result.exit_code == 0
     assert "5" in python_result.output
-    assert blocked_result.exit_code == 126
-    assert "only python/python3 via uv" in blocked_result.output
+    assert grep_result.exit_code == 0
+    assert "Seoul" in grep_result.output
 
 
 def test_data_execution_backend_runs_python_through_uv_project(
@@ -672,12 +673,60 @@ def test_data_execution_backend_runs_js_heredoc_when_node_is_available(
     assert "node heredoc ok" in result.output
 
 
-def test_data_execution_backend_blocks_unsupported_uv_commands(tmp_path) -> None:
-    backend = DataExecutionBackend(tmp_path)
+def test_data_execution_backend_allows_non_python_uv_commands(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls = []
 
-    assert backend.execute("uv add pandas").exit_code == 126
-    assert backend.execute("uv pip install pandas").exit_code == 126
-    assert backend.execute("uv run bash script.sh").exit_code == 126
+    def fake_run(*args, **kwargs):
+        calls.append({"args": args[0], **kwargs})
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = DataExecutionBackend(tmp_path).execute("uv run bash script.sh")
+
+    assert result.exit_code == 0
+    assert calls[0]["args"] == ["uv", "run", "bash", "script.sh"]
+
+
+def test_data_execution_backend_runs_shell_pipeline(tmp_path) -> None:
+    result = DataExecutionBackend(tmp_path).execute("printf 'a\\nb\\n' | wc -l")
+
+    assert result.exit_code == 0
+    assert result.output.strip() == "2"
+
+
+def test_data_execution_backend_runs_shell_redirects_in_workspace(tmp_path) -> None:
+    result = DataExecutionBackend(tmp_path).execute(
+        "mkdir -p out && printf hi > out/result.txt"
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / "out" / "result.txt").read_text(encoding="utf-8") == "hi"
+
+
+def test_data_execution_backend_runs_general_shell_heredoc(tmp_path) -> None:
+    result = DataExecutionBackend(tmp_path).execute(
+        "\n".join(
+            [
+                "mkdir -p out && cat > out/heredoc.txt <<'EOF'",
+                "hello from shell",
+                "EOF",
+            ]
+        )
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / "out" / "heredoc.txt").read_text(encoding="utf-8") == (
+        "hello from shell\n"
+    )
 
 
 def test_data_execution_backend_rejects_unclosed_heredoc(tmp_path) -> None:
